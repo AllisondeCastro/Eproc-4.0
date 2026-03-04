@@ -6,6 +6,8 @@
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=pesquisa_processo*
+// @updateURL    https://github.com/AllisondeCastro/Eproc-4.0/raw/refs/heads/main/EPROC%204.0.user.js
+// @downloadURL  https://github.com/AllisondeCastro/Eproc-4.0/raw/refs/heads/main/EPROC%204.0.user.js
 // @grant        none
 // @run-at       document-end
 // ==/UserScript==
@@ -2035,4 +2037,5 @@
         });
         new MutationObserver(fixPesq).observe(document.body, {childList:true, subtree:true}); fixPesq();
     }
+
 })();
