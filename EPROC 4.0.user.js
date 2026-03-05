@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      44.3
-// @description  Seleções inteligentes e Complementos ao EPROC
+// @version      44.7
+// @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=pesquisa_processo*
@@ -18,7 +18,6 @@
     // ===========================================================================================
     // CONFIGURAÇÕES & CONSTANTES
     // ===========================================================================================
-    // Ajustado para o HTML exato da capa do processo
     const TEXTO_ALVO_1 = "Remetidos os Autos (outros motivos) para Núcleo 4.0";
     const TEXTO_ALVO_2 = "Núcleo 4.0"; // Fallback genérico
 
@@ -42,8 +41,60 @@
     // Memória da Sessão Atual para "Novos Paralisados"
     const paralisadosNovosSessao = new Set();
 
+    // MAPA DE COMARCAS E SIGLAS (DISTRIBUIÇÃO INTELIGENTE)
+    const COMARCAS_MAP = {
+        "AET": "ABAETÉ", "ABN": "ABRE-CAMPO", "ACN": "AÇUCENA", "AGF": "ÁGUAS FORMOSAS", "AOR": "AIMORÉS", "AUD": "AIURUOCA", 
+        "API": "ALÉM PARAÍBA", "AFN": "ALFENAS", "AMN": "ALMENARA", "ALS": "ALPINÓPOLIS", "ADC": "ALTO RIO DOCE", "ALL": "ALVINÓPOLIS", 
+        "ANA": "ANDRADAS", "ADL": "ANDRELÂNDIA", "AUI": "ARAÇUAÍ", "ARI": "ARAGUARI", "AXA": "ARAXÁ", "ACS": "ARCOS", "ADO": "AREADO", 
+        "AYN": "ARINOS", "BAD": "BAEPENDI", "BBI": "BAMBUÍ", "BCS": "BARÃO DE COCAIS", "BCA": "BARBACENA", "BSO": "BARROSO", 
+        "BHE": "BELO HORIZONTE", "BLL": "BELO VALE", "BET": "BETIM", "BIS": "BICAS", "BOE": "BOA ESPERANÇA", "BCV": "BOCAIÚVA", 
+        "BDP": "BOM DESPACHO", "BMS": "BOM SUCESSO", "BFM": "BONFIM", "BFS": "BONFINÓPOLIS DE MINAS", "BOM": "BORDA DA MATA", 
+        "BHS": "BOTELHOS", "BMN": "BRASÍLIA DE MINAS", "BPS": "BRAZÓPOLIS", "BMO": "BRUMADINHO", "BBD": "BUENO BRANDÃO", "BUS": "BUENÓPOLIS", 
+        "BII": "BURITIS", "CBV": "CABO VERDE", "CHS": "CACHOEIRA DE MINAS", "CET": "CAETÉ", "CAD": "CALDAS", "CDU": "CAMANDUCAIA", 
+        "CBI": "CAMBUÍ", "CAQ": "CAMBUQUIRA", "CPH": "CAMPANHA", "CST": "CAMPESTRE", "CVE": "CAMPINA VERDE", "CPO": "Campo Belo", 
+        "CMT": "CAMPOS ALTOS", "CPG": "CAMPOS GERAIS", "COI": "CANÁPOLIS", "CWA": "CANDEIAS", "CLH": "CAPELINHA", "CNS": "CAPINÓPOLIS", 
+        "CRD": "CARANDAÍ", "CRL": "CARANGOLA", "CGA": "CARATINGA", "CCH": "CARLOS CHAGAS", "COM": "CARMO DA MATA", "CAE": "CARMO DE MINAS", 
+        "CCU": "CARMO DO CAJURU", "CMI": "CARMO DO PARANAÍBA", "CRC": "CARMO DO RIO CLARO", "CRM": "CARMÓPOLIS DE MINAS", "CSA": "CÁSSIA", 
+        "CGS": "CATAGUASES", "CAX": "CAXAMBU", "CLU": "CLÁUDIO", "CLS": "CONCEIÇÃO DAS ALAGOAS", "CMD": "CONCEIÇÃO DO MATO DENTRO", 
+        "CVR": "CONCEIÇÃO DO RIO VERDE", "CNG": "CONGONHAS", "CQT": "CONQUISTA", "CNL": "CONSELHEIRO LAFAIETE", "CSN": "CONSELHEIRO PENA", 
+        "CEM": "CONTAGEM", "COJ": "CORAÇÃO DE JESUS", "CIT": "CORINTO", "CEL": "COROMANDEL", "CRF": "CORONEL FABRICIANO", "CSI": "CRISTINA", 
+        "CZL": "CRUZÍLIA", "CUV": "CURVELO", "DMT": "DIAMANTINA", "DVO": "DIVINO", "DVL": "DIVINÓPOLIS", "DDI": "DORES DO INDAIÁ", 
+        "ELM": "ELÓI MENDES", "ERM": "ENTRE-RIOS DE MINAS", "ERV": "ERVÁLIA", "EES": "ESMERALDAS", "EEP": "ESPERA FELIZ", "EPS": "ESPINOSA", 
+        "EEL": "ESTRELA DO SUL", "EOS": "EUGENÓPOLIS", "EXM": "EXTREMA", "FES": "FERROS", "FMA": "FORMIGA", "FCS": "FRANCISCO SÁ", 
+        "FRU": "FRUTAL", "GLL": "GALILÉIA", "GVS": "GOVERNADOR VALADARES", "GGL": "GRÃO-MOGOL", "GHE": "GUANHÃES", "GUE": "GUAPÉ", 
+        "GSA": "GUARANÉSIA", "GNI": "GUARANI", "GPE": "GUAXUPÉ", "IBY": "IBIÁ", "III": "IBIRACI", "IIB": "IBIRITÉ", "IRP": "IGARAPÉ", 
+        "IUM": "IGUATAMA", "INP": "INHAPIM", "YAN": "IPANEMA", "IIG": "IPATINGA", "IBA": "ITABIRA", "IRO": "ITABIRITO", "IGR": "ITAGUARA", 
+        "IJA": "ITAJUBÁ", "IMR": "ITAMARANDIBA", "ITC": "ITAMBACURI", "IOG": "ITAMOJI", "IMO": "ITAMONTE", "ITD": "ITANHANDU", "INH": "ITANHOMI", 
+        "IGY": "ITAPAJIPE", "IPC": "ITAPECERICA", "IAN": "ITAÚNA", "IUA": "ITUIUTABA", "IYM": "ITUMIRIM", "ITM": "ITURAMA", "JBU": "JABOTICATUBAS", 
+        "JNT": "JACINTO", "JCU": "JACUÍ", "JTA": "JACUTINGA", "JAB": "JAÍBA", "JUA": "JANAÚBA", "JNU": "JANUÁRIA", "JQI": "JEQUERI", 
+        "JQT": "JEQUITINHONHA", "JML": "João Monlevade", "JPI": "João Pinheiro", "JTB": "JUATUBA", "JFA": "Juiz de Fora", "LPT": "Lagoa da Prata", 
+        "LGT": "Lagoa Santa", "LJA": "Lajinha", "LAM": "Lambari", "LAV": "Lavras", "LPD": "Leopoldina", "LAD": "Lima Duarte", "LUZ": "LUZ", 
+        "MCD": "Machado", "MCH": "Malacacheta", "MAG": "Manga", "MNC": "Manhuaçu", "MIM": "Manhumirim", "MNN": "Mantena", "MEH": "Mar de Espanha", 
+        "MRN": "Mariana", "MHC": "Martinho Campos", "MAL": "Mateus Leme", "MBB": "Matias Barbosa", "MTZ": "Matozinhos", "MDA": "Medina", 
+        "MEE": "Mercês", "MQI": "Mesquita", "MNV": "Minas Novas", "MDO": "Miradouro", "MII": "Miraí", "MTV": "Montalvânia", "MAM": "Monte Alegre de Minas", 
+        "MZL": "Monte Azul", "MBE": "Monte Belo", "MOO": "Monte Carmelo", "MSM": "Monte Santo de Minas", "MSI": "Monte Sião", "MCL": "Montes Claros", 
+        "MNM": "Morada Nova de Minas", "MRE": "Muriaé", "MTM": "Mutum", "MUZ": "Muzambinho", "NNE": "Nanuque", "NAR": "Natércia", "NPO": "Nepomuceno", 
+        "NER": "Nova Era", "NLA": "Nova Lima", "NVN": "Nova Ponte", "NES": "Nova Resende", "NVS": "Nova Serrana", "NZO": "Novo Cruzeiro", 
+        "OLV": "Oliveira", "OUO": "Ouro Branco", "OUF": "Ouro Fino", "ORP": "Ouro Preto", "PAL": "Palma", "PRS": "Pará de Minas", "PTU": "Paracatu", 
+        "PGC": "Paraguaçu", "PSP": "Paraisópolis", "PEB": "Paraopeba", "PQO": "Passa-Quatro", "PST": "Passa-Tempo", "PSS": "Passos", "PMS": "Patos de Minas", 
+        "PTC": "Patrocínio", "PNH": "Peçanha", "PZL": "Pedra Azul", "PDV": "Pedralva", "PLO": "Pedro Leopoldo", "PEZ": "Perdizes", "PDS": "Perdões", 
+        "PRG": "Piranga", "PPN": "Pirapetinga", "PRR": "Pirapora", "PTI": "Pitangui", "PIU": "Piumhi", "POF": "Poço Fundo", "PCS": "Poços de Caldas", 
+        "PPE": "Pompéu", "PNV": "Ponte Nova", "PTH": "Porteirinha", "PSO": "Pouso Alegre", "PAD": "Prados", "PRT": "Prata", "PRO": "Pratápolis", 
+        "PEE": "Presidente Olegário", "RSS": "Raul Soares", "RED": "Resende Costa", "RSP": "Resplendor", "RNS": "Ribeirão das Neves", "RCS": "Rio Casca", 
+        "RNV": "Rio Novo", "RPA": "Rio Paranaíba", "RDS": "Rio Pardo de Minas", "RPC": "Rio Piracicaba", "RPB": "Rio Pomba", "RRE": "Rio Preto", 
+        "RIV": "Rio Vermelho", "SBA": "Sabará", "SNS": "Sabinópolis", "SQN": "Sacramento", "SLN": "Salinas", "SBB": "Santa Bárbara", "SLU": "Santa Luzia", 
+        "SUI": "Santa Maria do Suaçuí", "SRT": "Santa Rita de Caldas", "SRS": "Santa Rita do Sapucaí", "STV": "Santa Vitória", "SDT": "Santo Antônio do Monte", 
+        "SND": "Santos Dumont", "SDG": "São Domingos do Prata", "SFI": "São Francisco", "SGS": "São Gonçalo do Sapucaí", "SGT": "São Gotardo", 
+        "SJT": "São João da Ponte", "SOE": "São João del-Rei", "SSK": "São João do Paraíso", "SEG": "São João Evangelista", "SJN": "São João Nepomuceno", 
+        "SAL": "São Lourenço", "SRW": "São Romão", "SQS": "São Roque de Minas", "SSP": "São Sebastião do Paraíso", "SDF": "Senador Firmino", "SER": "Serro", 
+        "SLA": "Sete Lagoas", "SLP": "Silvianópolis", "TOE": "Taiobeiras", "TRM": "Tarumirim", "TXS": "Teixeiras", "TOT": "Teófilo Otôni", "TTO": "Timóteo", 
+        "TRZ": "Tiros", "TOS": "Tombos", "TCS": "Três Corações", "TMS": "Três Marias", "TSP": "Três Pontas", "TPC": "Tupaciguara", "TUR": "Turmalina", 
+        "UBA": "Ubá", "URA": "Uberaba", "ULA": "Uberlândia", "UNI": "Unaí", "VGA": "Varginha", "VZP": "Várzea da Palma", "VZE": "Vazante", 
+        "VPN": "Vespasiano", "VCS": "Viçosa", "VGP": "Virginópolis", "VRB": "Visconde do Rio Branco"
+    };
+
     // ===========================================================================================
-    // PARTE 1: ESTILOS (CORREÇÃO DE LARGURA DEFINITIVA)
+    // PARTE 1: ESTILOS (CORREÇÃO DE LARGURA DEFINITIVA E ASSISTENTE)
     // ===========================================================================================
     const style = document.createElement('style');
     style.innerHTML = `
@@ -249,7 +300,7 @@
         .eproc-modal-content {
             background: #fff; padding: 20px; border-radius: 6px; width: 320px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-family: Arial, sans-serif;
-            border: 1px solid #ccc;
+            border: 1px solid #ccc; max-height: 90vh; overflow-y: auto;
         }
         .eproc-modal-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
         .eproc-modal-field { margin-bottom: 15px; }
@@ -262,119 +313,82 @@
 
         .eproc-radio-group { display: flex; gap: 15px; margin-right: 15px; border-right: 1px solid #eee; padding-right: 15px; }
         .eproc-radio-label { font-size: 12px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 4px; }
+        
+        .eproc-btn-magic { background-image: linear-gradient(to bottom, #f39c12 0, #e67e22 100%); color: #fff; font-weight: bold; border-color: #d35400; }
+        .eproc-btn-magic:hover { background-image: none; background-color: #e67e22; color: #fff; }
+        .eproc-dist-item { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-bottom: 10px; background-color: #fcfcfc; }
+        .eproc-dist-title { font-weight: bold; color: #333; font-size: 13px; margin-bottom: 5px; }
+        .eproc-dist-count { font-size: 11px; color: #777; margin-bottom: 8px; }
     `;
     document.head.appendChild(style);
 
-
     // ===========================================================================================
-    // GESTÃO DE CACHE OTIMIZADA (LAZY HYBRID STRATEGY + BULK GET)
+    // CACHE MANAGER & INFRA
     // ===========================================================================================
     const CacheManager = {
         db: null,
-        memoryCache: new Map(), // Cache Síncrono em RAM
-        writeBuffer:[], // Buffer para gravação em lote
-        writeTimer: null, // Timer para flush automático
+        memoryCache: new Map(),
+        writeBuffer:[],
+        writeTimer: null,
         initPromise: null,
-        ready: false, // Flag vital
+        ready: false,
 
-        // Inicializa o banco de dados (SEM WARMUP BLOQUEANTE)
         init: function() {
             if (this.initPromise) return this.initPromise;
-
-            this.initPromise = new Promise((resolve, reject) => {
+            this.initPromise = new Promise((resolve) => {
                 const request = indexedDB.open(DB_NAME, DB_VERSION);
-
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
-                    if (!db.objectStoreNames.contains(STORE_NAME)) {
-                        db.createObjectStore(STORE_NAME, { keyPath: "id" });
-                    }
-                    if (!db.objectStoreNames.contains(STORE_PARALISADOS)) {
-                        db.createObjectStore(STORE_PARALISADOS, { keyPath: "id" });
-                    }
+                    if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME, { keyPath: "id" });
+                    if (!db.objectStoreNames.contains(STORE_PARALISADOS)) db.createObjectStore(STORE_PARALISADOS, { keyPath: "id" });
                 };
-
                 request.onsuccess = (event) => {
                     this.db = event.target.result;
-                    // OTIMIZAÇÃO: Libera imediatamente. Não espera ler tudo.
                     this.ready = true;
-
-                    // Tarefas de fundo (sem await)
                     this.cleanupOldData();
                     this.migrateDatesFromLocalStorage();
                     resolve(this.db);
                 };
-
-                request.onerror = (event) => {
-                    console.error("Eproc IDB Error:", event.target.error);
-                    this.ready = true; // Libera mesmo com erro para não travar
-                    resolve();
-                };
+                request.onerror = (event) => { this.ready = true; resolve(); };
             });
             return this.initPromise;
         },
 
-        // GET ASSÍNCRONO PONTUAL (Camada 2 - IndexedDB)
         getAsync: function(id) {
             return new Promise((resolve) => {
                 if (!this.db) { resolve(null); return; }
                 const tx = this.db.transaction([STORE_NAME], "readonly");
                 const store = tx.objectStore(STORE_NAME);
                 const req = store.get(id);
-
                 req.onsuccess = () => {
                     const res = req.result;
-                    if (res) {
-                        const expirationTime = Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
-                        if (res.timestamp >= expirationTime) {
-                            // Popula a RAM para a próxima vez (Cache Warming sob demanda)
-                            this.memoryCache.set(id, res.value);
-                            resolve(res.value);
-                        } else {
-                            resolve(null);
-                        }
-                    } else {
-                        resolve(null);
-                    }
+                    if (res && res.timestamp >= Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000)) {
+                        this.memoryCache.set(id, res.value); resolve(res.value);
+                    } else resolve(null);
                 };
                 req.onerror = () => resolve(null);
             });
         },
 
-        // BULK GET (Otimização para leitura em lote)
         warmupChunk: function(keys) {
             return new Promise((resolve) => {
                 if (!this.db || keys.length === 0) { resolve(); return; }
                 const tx = this.db.transaction([STORE_NAME], "readonly");
                 const store = tx.objectStore(STORE_NAME);
-                const expirationTime = Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
-
+                const expTime = Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
                 let processed = 0;
                 keys.forEach(key => {
-                    if (this.memoryCache.has(key)) {
-                        processed++;
-                        if (processed === keys.length) resolve();
-                        return;
-                    }
-
+                    if (this.memoryCache.has(key)) { processed++; if (processed === keys.length) resolve(); return; }
                     const req = store.get(key);
                     req.onsuccess = () => {
-                        const res = req.result;
-                        if (res && res.timestamp >= expirationTime) {
-                            this.memoryCache.set(key, res.value);
-                        }
-                        processed++;
-                        if (processed === keys.length) resolve();
+                        if (req.result && req.result.timestamp >= expTime) this.memoryCache.set(key, req.result.value);
+                        processed++; if (processed === keys.length) resolve();
                     };
-                    req.onerror = () => {
-                        processed++;
-                        if (processed === keys.length) resolve();
-                    };
+                    req.onerror = () => { processed++; if (processed === keys.length) resolve(); };
                 });
             });
         },
 
-        // Validação de paralisados com persistência na Sessão Atual
         checkNovosParalisados: function(ids) {
             return new Promise((resolve) => {
                 if (!this.db || ids.length === 0) { resolve([]); return; }
@@ -384,43 +398,20 @@
                     const novos =[];
                     let processados = 0;
                     const now = Date.now();
-
                     ids.forEach(id => {
-                        // Se já descobrimos nesta sessão na tela, retorna ele sem olhar no DB
-                        if (paralisadosNovosSessao.has(id)) {
-                            novos.push(id);
-                            checkDone();
-                            return;
-                        }
-
+                        if (paralisadosNovosSessao.has(id)) { novos.push(id); checkDone(); return; }
                         const req = store.get(id);
                         req.onsuccess = () => {
-                            if (!req.result) {
-                                novos.push(id);
-                                paralisadosNovosSessao.add(id); // Marca na sessão p/ não se perder se o DOM for reescrito
-                                store.put({ id: id, timestamp: now }); // Grava no IndexedDB
-                            }
+                            if (!req.result) { novos.push(id); paralisadosNovosSessao.add(id); store.put({ id: id, timestamp: now }); }
                             checkDone();
                         };
-                        req.onerror = () => {
-                            checkDone();
-                        };
+                        req.onerror = () => checkDone();
                     });
-
-                    function checkDone() {
-                        processados++;
-                        if (processados === ids.length) {
-                            resolve(novos);
-                        }
-                    }
-                } catch (e) {
-                    console.error("Erro ao checar paralisados no DB:", e);
-                    resolve([]);
-                }
+                    function checkDone() { processados++; if (processados === ids.length) resolve(novos); }
+                } catch (e) { resolve([]); }
             });
         },
 
-        // Migra cache antigo do LS para IDB
         migrateDatesFromLocalStorage: async function() {
             try {
                 const oldCacheStr = localStorage.getItem("eproc_dates_cache_v2_persistent");
@@ -429,10 +420,7 @@
                     const store = tx.objectStore(STORE_NAME);
                     const now = Date.now();
                     const oldData = JSON.parse(oldCacheStr);
-
-                    for (const [id, val] of Object.entries(oldData)) {
-                        store.put({ id: id, value: val, timestamp: now });
-                    }
+                    for (const [id, val] of Object.entries(oldData)) store.put({ id: id, value: val, timestamp: now });
                     localStorage.removeItem("eproc_dates_cache_v2_persistent");
                 }
             } catch (e) {}
@@ -442,76 +430,46 @@
             try {
                 const tx = this.db.transaction([STORE_NAME], "readwrite");
                 const store = tx.objectStore(STORE_NAME);
-                const expirationTime = Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
+                const expTime = Date.now() - (EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
                 const cursorRequest = store.openCursor();
                 cursorRequest.onsuccess = (e) => {
                     const cursor = e.target.result;
                     if (cursor) {
-                        if (!cursor.value.id.startsWith("pref_") && cursor.value.timestamp < expirationTime) {
-                            cursor.delete();
-                        }
+                        if (!cursor.value.id.startsWith("pref_") && cursor.value.timestamp < expTime) cursor.delete();
                         cursor.continue();
                     }
                 };
             } catch (e) {}
         },
 
-        // GET SÍNCRONO (Camada 1 - RAM)
-        getSync: function(id) {
-            return this.memoryCache.get(id);
-        },
+        getSync: function(id) { return this.memoryCache.get(id); },
 
-        // SET Assíncrono com Batching
         set: function(id, val) {
-            // Atualiza RAM imediatamente
             this.memoryCache.set(id, val);
-
-            // Buffer IDB
-            this.writeBuffer.push({
-                id: id,
-                value: val,
-                timestamp: Date.now()
-            });
-
-            if (this.writeBuffer.length >= 20) {
-                this.flushBuffer();
-            } else {
+            this.writeBuffer.push({ id: id, value: val, timestamp: Date.now() });
+            if (this.writeBuffer.length >= 20) this.flushBuffer();
+            else {
                 if (this.writeTimer) clearTimeout(this.writeTimer);
                 this.writeTimer = setTimeout(() => this.flushBuffer(), 5000);
             }
         },
 
         flushBuffer: function() {
-            if (this.writeBuffer.length === 0) return;
-
-            const batch = [...this.writeBuffer];
-            this.writeBuffer =[];
+            if (this.writeBuffer.length === 0 || !this.db) return;
+            const batch = [...this.writeBuffer]; this.writeBuffer =[];
             if (this.writeTimer) clearTimeout(this.writeTimer);
-
-            if (!this.db) return;
-
             const tx = this.db.transaction([STORE_NAME], "readwrite");
             const store = tx.objectStore(STORE_NAME);
-
-            batch.forEach(item => {
-                store.put(item);
-            });
+            batch.forEach(item => store.put(item));
         }
     };
     CacheManager.init();
 
-    // ===========================================================================================
-    // DOM BATCHER
-    // ===========================================================================================
     const DomBatcher = {
-        queue:[],
-        scheduled: false,
+        queue:[], scheduled: false,
         add: function(element, html, row, attributes) {
             this.queue.push({ element, html, row, attributes });
-            if (!this.scheduled) {
-                this.scheduled = true;
-                requestAnimationFrame(() => this.flush());
-            }
+            if (!this.scheduled) { this.scheduled = true; requestAnimationFrame(() => this.flush()); }
         },
         flush: function() {
             for (let i = 0; i < this.queue.length; i++) {
@@ -519,844 +477,567 @@
                 if (item.element) item.element.innerHTML = item.html;
                 if (item.row && item.attributes) {
                     for (const[key, val] of Object.entries(item.attributes)) {
-                        if (val === null) item.row.removeAttribute(key);
-                        else item.row.setAttribute(key, val);
+                        if (val === null) item.row.removeAttribute(key); else item.row.setAttribute(key, val);
                     }
                 }
             }
-            this.queue =[];
-            this.scheduled = false;
+            this.queue =[]; this.scheduled = false;
         }
     };
 
-    // UTIL: Toast Feedback
-    function mostrarToast() {
+    function mostrarToast(msg) {
         const toast = document.getElementById('eproc-toast');
         if (toast) {
+            if(msg) toast.textContent = msg;
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
     }
 
-    // UTIL: Copy to Clipboard
     async function copiarParaClipboard(conteudoHtml, conteudoTexto) {
         try {
             const blobHtml = new Blob([conteudoHtml], { type: 'text/html' });
             const blobText = new Blob([conteudoTexto], { type: 'text/plain' });
             const data =[new ClipboardItem({ 'text/html': blobHtml, 'text/plain': blobText })];
             await navigator.clipboard.write(data);
-            mostrarToast();
+            mostrarToast("Processos copiados!");
         } catch (err) {
             const textArea = document.createElement('textarea');
             textArea.value = conteudoTexto;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            mostrarToast();
+            document.body.appendChild(textArea); textArea.select(); document.execCommand('copy'); document.body.removeChild(textArea);
+            mostrarToast("Processos copiados!");
         }
     }
 
-
-    // ===========================================================================================
-    // ARQUITETURA: TOKEN BUCKET RATE LIMITER
-    // ===========================================================================================
     class TokenBucket {
-        constructor(capacity, tokensPerSecond) {
-            this.capacity = capacity;
-            this.tokens = capacity;
-            this.rate = tokensPerSecond;
-            this.lastRefill = Date.now();
-        }
-
+        constructor(capacity, tokensPerSecond) { this.capacity = capacity; this.tokens = capacity; this.rate = tokensPerSecond; this.lastRefill = Date.now(); }
         async consume() {
             this.refill();
-            if (this.tokens >= 1) {
-                this.tokens -= 1;
-                return true;
-            }
-            const timeToNextToken = (1 / this.rate) * 1000;
-            const waitTime = Math.max(0, this.lastRefill + timeToNextToken - Date.now());
+            if (this.tokens >= 1) { this.tokens -= 1; return true; }
+            const waitTime = Math.max(0, this.lastRefill + ((1 / this.rate) * 1000) - Date.now());
             await new Promise(resolve => setTimeout(resolve, waitTime));
             return this.consume();
         }
-
         refill() {
-            const now = Date.now();
-            const elapsed = (now - this.lastRefill) / 1000;
-            if (elapsed > 0) {
-                const newTokens = elapsed * this.rate;
-                this.tokens = Math.min(this.capacity, this.tokens + newTokens);
-                this.lastRefill = now;
-            }
+            const now = Date.now(); const elapsed = (now - this.lastRefill) / 1000;
+            if (elapsed > 0) { this.tokens = Math.min(this.capacity, this.tokens + (elapsed * this.rate)); this.lastRefill = now; }
         }
     }
-
     const rateLimiter = new TokenBucket(BUCKET_CAPACITY, TOKENS_PER_SECOND);
 
-
     // ===========================================================================================
-    // PARTE 2: MOTOR DE REQUISIÇÃO (COM LAZY HYBRID STRATEGY)
+    // PARTE 2: MOTOR DE REQUISIÇÃO (REDE E CACHE)
     // ===========================================================================================
-
     const filaDeProcessamento = {
-        queue:[],
-        active: 0,
-        pauseUntil: 0,
-
-        // AQUI ESTÁ A LÓGICA EM CAMADAS (RAM -> IDB -> REDE)
+        queue:[], active: 0, pauseUntil: 0,
         add: function(url, celula, linha, numProcesso) {
             if (linha.getAttribute('data-nucleo-status')) return;
-
-            // CAMADA 1: MEMÓRIA RAM (SÍNCRONA/INSTANTÂNEA)
             const cachedValue = CacheManager.getSync(numProcesso) || CacheManager.getSync(url);
-
-            if (cachedValue) {
-                this.renderizarDoCache(celula, linha, cachedValue);
-                return;
-            }
-
-            // Mostra Spinner Imediatamente (feedback visual)
-            DomBatcher.add(
-                celula,
-                `<div class="eproc-spinner"></div>`,
-                linha,
-                { 'data-nucleo-status': 'checking-storage' }
-            );
-
-            // CAMADA 2: INDEXEDDB (ASSÍNCRONA)
-            // Lança a verificação no banco sem bloquear o loop principal
-            const chaveBusca = numProcesso || url;
-            CacheManager.getAsync(chaveBusca).then((dbValue) => {
-                if (dbValue) {
-                    // Achou no DB (e já atualizou a RAM internamente no getAsync)
-                    this.renderizarDoCache(celula, linha, dbValue);
-                } else {
-                    // CAMADA 3: REDE (FALLBACK)
-                    // Só enfileira se não achou em lugar nenhum
+            if (cachedValue) { this.renderizarDoCache(celula, linha, cachedValue); return; }
+            DomBatcher.add(celula, `<div class="eproc-spinner"></div>`, linha, { 'data-nucleo-status': 'checking-storage' });
+            CacheManager.getAsync(numProcesso || url).then((dbValue) => {
+                if (dbValue) this.renderizarDoCache(celula, linha, dbValue);
+                else {
                     this.queue.push({ url, celula, linha, numProcesso, retries: 0 });
-                    linha.setAttribute('data-nucleo-status', 'queued'); // Atualiza status
-                    this.process();
+                    linha.setAttribute('data-nucleo-status', 'queued'); this.process();
                 }
             });
         },
-
         renderizarDoCache: function(celula, linha, value) {
-            const parts = value.split('###');
-            const dataStr = parts[0];
-            const origemStr = parts[1] || "-";
-            const regexData = /^\d{2}\/\d{2}\/\d{4}$/;
-
-            if (regexData.test(dataStr)) {
+            const parts = value.split('###'); const dataStr = parts[0]; const origemStr = parts[1] || "-";
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) {
                 DomBatcher.add(celula, `<span style="color:#000;">${dataStr}</span>`, linha, { 'data-nucleo-carregado': 'true', 'data-nucleo-status': null });
                 const celulaOrigem = celula.nextElementSibling;
                 if(celulaOrigem && celulaOrigem.classList.contains('eproc-col-origem-nucleo')) {
                     DomBatcher.add(celulaOrigem, `<span title="${origemStr}">${origemStr}</span>`, null, null);
-
-                    // AJUSTE SOLICITADO: Atualizar índice de busca com a origem
-                    const idxAtual = linha.getAttribute('data-idx-text') || "";
-                    linha.setAttribute('data-idx-text', idxAtual + " " + origemStr.toUpperCase());
+                    linha.setAttribute('data-idx-text', (linha.getAttribute('data-idx-text') || "") + " " + origemStr.toUpperCase());
                 }
             }
         },
-
         process: async function() {
             if (this.active >= MAX_CONCURRENCY || this.queue.length === 0) return;
-
-            if (Date.now() < this.pauseUntil) {
-                setTimeout(() => this.process(), 1000);
-                return;
-            }
-
+            if (Date.now() < this.pauseUntil) { setTimeout(() => this.process(), 1000); return; }
             await rateLimiter.consume();
-
             if (this.queue.length === 0) return;
-
-            const jitter = Math.floor(Math.random() * 150);
-            await new Promise(r => setTimeout(r, jitter));
-
-            const task = this.queue.shift();
-            this.active++;
-            task.linha.setAttribute('data-nucleo-status', 'processing');
-
-            this.executeTask(task);
-            this.process();
+            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 150)));
+            const task = this.queue.shift(); this.active++; task.linha.setAttribute('data-nucleo-status', 'processing');
+            this.executeTask(task); this.process();
         },
-
         executeTask: async function(task) {
             try {
-                let urlToFetch = task.url;
-                let fetchOptions = {
-                    method: 'GET',
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-                    },
-                    credentials: 'include',
-                    cache: 'no-store'
-                };
-
-                if (task.retries > 3) {
-                    const separator = urlToFetch.includes('?') ? '&' : '?';
-                    urlToFetch += `${separator}_force_refresh=${Date.now()}`;
-                }
-
-                if (task.retries > 6) {
-                    const randomDelay = Math.floor(Math.random() * 3000) + 1500;
-                    await new Promise(r => setTimeout(r, randomDelay));
-                }
-
-                const controller = new AbortController();
-                // OTIMIZAÇÃO: Timeout Agressivo (Fail-Fast)
-                const timeoutDuration = 15000; // 15 segundos
-                const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
-                fetchOptions.signal = controller.signal;
-
-                const res = await fetch(urlToFetch, fetchOptions);
+                let url = task.url;
+                if (task.retries > 3) url += `${url.includes('?')?'&':'?'}_force_refresh=${Date.now()}`;
+                if (task.retries > 6) await new Promise(r => setTimeout(r, Math.floor(Math.random() * 3000) + 1500));
+                const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 15000);
+                const res = await fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'include', cache: 'no-store', signal: controller.signal });
                 clearTimeout(timeoutId);
-
-                if (res.url.includes("login") || res.url.includes("acao=sair") || res.url.includes("msg=Sua")) {
-                    throw new Error("SESSAO_ENCERRADA");
-                }
-
+                if (res.url.includes("login") || res.url.includes("acao=sair") || res.url.includes("msg=Sua")) throw new Error("SESSAO_ENCERRADA");
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-                const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('iso-8859-1');
-                const text = decoder.decode(buffer);
-
-                if (text.length < 500 || text.includes("Sua sessão foi encerrada")) {
-                     throw new Error("SESSAO_ENCERRADA");
-                }
-
+                const text = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
+                if (text.length < 500 || text.includes("Sua sessão foi encerrada")) throw new Error("SESSAO_ENCERRADA");
                 this.parseAndFinish(text, task);
-
             } catch (error) {
-                this.active--;
-                task.retries++;
-
+                this.active--; task.retries++;
                 if (error.message === "SESSAO_ENCERRADA" || error.message.includes("Sessão")) {
-                    console.warn("Eproc: Instabilidade de sessão detectada. Pausando workers.");
-                    this.pauseUntil = Date.now() + 15000;
-
-                    task.linha.setAttribute('data-nucleo-status', 'queued');
-                    this.queue.push(task);
-                    setTimeout(() => this.process(), 15000);
-                    return;
+                    this.pauseUntil = Date.now() + 15000; task.linha.setAttribute('data-nucleo-status', 'queued');
+                    this.queue.push(task); setTimeout(() => this.process(), 15000); return;
                 }
-
-                if (!document.body.contains(task.linha)) {
-                this.active--;
-                this.process();
-                return;
-            }
-
-                let waitTime = Math.min((task.retries * 3000) + 2000, 45000);
-
-                let spinnerColor = "orange";
-                if (task.retries > 5) spinnerColor = "red";
-                if (task.retries > 10) spinnerColor = "purple";
-
-                DomBatcher.add(
-                    task.celula,
-                    `<div class="eproc-spinner" style="border-top-color: ${spinnerColor};"></div>`,
-                    task.linha,
-                    { 'data-nucleo-status': 'waiting-retry' }
-                );
-
-                setTimeout(() => {
-                    task.linha.setAttribute('data-nucleo-status', 'queued');
-                    this.queue.push(task);
-                    this.process();
-                }, waitTime);
+                if (!document.body.contains(task.linha)) { this.process(); return; }
+                const color = task.retries > 10 ? "purple" : (task.retries > 5 ? "red" : "orange");
+                DomBatcher.add(task.celula, `<div class="eproc-spinner" style="border-top-color: ${color};"></div>`, task.linha, { 'data-nucleo-status': 'waiting-retry' });
+                setTimeout(() => { task.linha.setAttribute('data-nucleo-status', 'queued'); this.queue.push(task); this.process(); }, Math.min((task.retries * 3000) + 2000, 45000));
             }
         },
-
         parseAndFinish: function(text, task) {
             try {
-                let dataAchada = null;
-                let origemAchada = "-";
-                const regexData = /(\d{2}\/\d{2}\/\d{4})/;
+                let dataAchada = null, origemAchada = "-";
                 const regexOrigem = /\(([^()]+?)\s+para\s+.*?(?:4\.0)/i;
-
-                const indiceAlvo = text.indexOf(TEXTO_ALVO_1);
-
-                if (indiceAlvo !== -1) {
-                    const textoAnterior = text.substring(Math.max(0, indiceAlvo - 1000), indiceAlvo);
-                    const textoPosterior = text.substring(indiceAlvo, Math.min(text.length, indiceAlvo + 500));
-
-                    const matches = textoAnterior.match(/(\d{2}\/\d{2}\/\d{4})/g);
-                    if (matches && matches.length > 0) {
-                        dataAchada = matches[matches.length - 1];
-                    }
-
-                    const matchOrigem = textoPosterior.match(regexOrigem);
-                    if (matchOrigem && matchOrigem[1]) {
-                        origemAchada = matchOrigem[1].trim();
-                    }
+                const idx = text.indexOf(TEXTO_ALVO_1);
+                if (idx !== -1) {
+                    const matches = text.substring(Math.max(0, idx - 1000), idx).match(/(\d{2}\/\d{2}\/\d{4})/g);
+                    if (matches && matches.length > 0) dataAchada = matches[matches.length - 1];
+                    const matchOrigem = text.substring(idx, Math.min(text.length, idx + 500)).match(regexOrigem);
+                    if (matchOrigem) origemAchada = matchOrigem[1].trim();
                 }
-
                 if (!dataAchada) {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(text, "text/html");
-                    const linhasTabela = doc.querySelectorAll('#tblEventos tr');
-
-                    for (let tr of linhasTabela) {
-                        const txtLinha = tr.textContent;
-                        if (txtLinha.includes(TEXTO_ALVO_1) || (txtLinha.includes("Remetidos os Autos") && txtLinha.includes(TEXTO_ALVO_2))) {
-                            const celulaData = tr.cells[2];
-                            if (celulaData) {
-                                const textoData = celulaData.innerText.trim();
-                                const match = textoData.match(regexData);
-                                if (match) {
-                                    dataAchada = match[1];
-                                    const matchOrigem = txtLinha.match(regexOrigem);
-                                    if (matchOrigem && matchOrigem[1]) {
-                                        origemAchada = matchOrigem[1].trim();
-                                    }
-                                    break;
-                                }
+                    const doc = new DOMParser().parseFromString(text, "text/html");
+                    for (let tr of doc.querySelectorAll('#tblEventos tr')) {
+                        if (tr.textContent.includes(TEXTO_ALVO_1) || (tr.textContent.includes("Remetidos os Autos") && tr.textContent.includes(TEXTO_ALVO_2))) {
+                            const match = tr.cells[2]?.innerText.match(/(\d{2}\/\d{2}\/\d{4})/);
+                            if (match) {
+                                dataAchada = match[1];
+                                const mOrigem = tr.textContent.match(regexOrigem);
+                                if (mOrigem) origemAchada = mOrigem[1].trim();
+                                break;
                             }
                         }
                     }
                 }
-
                 if (dataAchada) {
                     CacheManager.set(task.numProcesso || task.url, `${dataAchada}###${origemAchada}`);
                     this.renderizarDoCache(task.celula, task.linha, `${dataAchada}###${origemAchada}`);
-                    this.active--;
-                    this.process();
-                } else {
-                    throw new Error("Data pattern not found - forcing retry");
-                }
+                    this.active--; this.process();
+                } else throw new Error("Data pattern not found");
             } catch (e) {
-                this.active--;
-                task.retries++;
-                task.linha.setAttribute('data-nucleo-status', 'queued');
-                this.queue.push(task);
-                setTimeout(() => this.process(), 1000);
+                this.active--; task.retries++; task.linha.setAttribute('data-nucleo-status', 'queued');
+                this.queue.push(task); setTimeout(() => this.process(), 1000);
             }
         }
     };
 
-    // ===========================================================================================
-    // KEEP ALIVE INTELIGENTE
-    // ===========================================================================================
     function scheduleKeepAlive() {
-        const delay = 180000 + Math.random() * 90000;
         setTimeout(() => {
-            fetch(location.href, {
-                method: 'HEAD',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-                credentials: 'include'
-            }).catch(() => {});
+            fetch(location.href, { method: 'HEAD', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'include' }).catch(() => {});
             scheduleKeepAlive();
-        }, delay);
+        }, 180000 + Math.random() * 90000);
     }
     scheduleKeepAlive();
 
-
     // ===========================================================================================
-    // PARTE 3: GESTÃO DA COLUNA, ORDENAÇÃO E ANALYTICS
+    // PARTE 3: TABELA E CHUNK PROCESSING
     // ===========================================================================================
-
-    let ordemData = 'desc';
-    let ordemOrigem = 'asc';
-
+    let ordemData = 'desc'; let ordemOrigem = 'asc';
     function obterDataSegura(str) {
-        if (!str) return null;
-        const match = str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-        if (match) {
-            return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
-        }
-        return null;
+        if (!str) return null; const match = str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        return match ? new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1])) : null;
     }
 
-    function ordenarPorData() {
+    function ordenarPor(colClass, ordemVar) {
         const tabela = document.querySelector('#tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return;
-        const th = tabela.querySelector('.th-nucleo-40');
-        if (!th) return;
-        const parent = th.closest('tbody') || tabela;
-        ordemData = (ordemData === 'asc') ? 'desc' : 'asc';
-        th.querySelector('.sort-icon').textContent = ordemData === 'asc' ? '▲' : '▼';
-        const idx = th.cellIndex;
-        const rows = Array.from(parent.children).filter(tr => {
-            return tr.tagName === 'TR' && tr.querySelectorAll('td').length > 0 && tr.querySelectorAll('th').length === 0 && tr.querySelector('.eproc-col-data-nucleo');
-        });
-        if (rows.length === 0) return;
+        const th = tabela.querySelector(colClass === '.eproc-col-data-nucleo' ? '.th-nucleo-40' : '.th-nucleo-origem');
+        if (!th) return; const parent = th.closest('tbody') || tabela;
+        const isData = colClass === '.eproc-col-data-nucleo';
+        window[ordemVar] = (window[ordemVar] === 'asc') ? 'desc' : 'asc';
+        th.querySelector('.sort-icon').textContent = window[ordemVar] === 'asc' ? '▲' : '▼';
+        const rows = Array.from(parent.children).filter(tr => tr.tagName === 'TR' && tr.querySelectorAll('td').length > 0 && tr.querySelector(colClass));
         rows.sort((a, b) => {
-            const vA = a.cells[idx]?.innerText.trim() || "";
-            const vB = b.cells[idx]?.innerText.trim() || "";
-            const badA = vA.includes("...") || vA.includes("spinner") || vA === "-" || vA.includes("Falha");
-            const badB = vB.includes("...") || vB.includes("spinner") || vB === "-" || vB.includes("Falha");
-            if (badA && !badB) return 1; if (!badA && badB) return -1; if (badA && badB) return 0;
-            const dA = obterDataSegura(vA); const dB = obterDataSegura(vB);
-            if (!dA) return 1; if (!dB) return -1;
-            return ordemData === 'asc' ? dA - dB : dB - dA;
-        });
-        rows.forEach(r => parent.appendChild(r));
-    }
-
-    function ordenarPorOrigem() {
-        const tabela = document.querySelector('#tabelaLocalizadores') || document.querySelector('.infraTable');
-        if (!tabela) return;
-        const th = tabela.querySelector('.th-nucleo-origem');
-        if (!th) return;
-        const parent = th.closest('tbody') || tabela;
-        ordemOrigem = (ordemOrigem === 'asc') ? 'desc' : 'asc';
-        th.querySelector('.sort-icon').textContent = ordemOrigem === 'asc' ? '▲' : '▼';
-        const idx = th.cellIndex;
-        const rows = Array.from(parent.children).filter(tr => {
-            return tr.tagName === 'TR' && tr.querySelectorAll('td').length > 0 && tr.querySelectorAll('th').length === 0 && tr.querySelector('.eproc-col-origem-nucleo');
-        });
-        if (rows.length === 0) return;
-        rows.sort((a, b) => {
-            const vA = a.cells[idx]?.innerText.trim() || "";
-            const vB = b.cells[idx]?.innerText.trim() || "";
-            if (vA === vB) return 0;
-            if (ordemOrigem === 'asc') return vA.localeCompare(vB);
-            return vB.localeCompare(vA);
+            const vA = a.cells[th.cellIndex]?.innerText.trim() || ""; const vB = b.cells[th.cellIndex]?.innerText.trim() || "";
+            if (isData) {
+                const dA = obterDataSegura(vA); const dB = obterDataSegura(vB);
+                if (!dA) return 1; if (!dB) return -1;
+                return window[ordemVar] === 'asc' ? dA - dB : dB - dA;
+            } else {
+                if (vA === vB) return 0;
+                return window[ordemVar] === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+            }
         });
         rows.forEach(r => parent.appendChild(r));
     }
 
     function verificarParalisacao(linha, idxEvento) {
-        if (!linha || idxEvento === -1) return;
-        const celulaEvento = linha.cells[idxEvento];
-        if (!celulaEvento) return;
-        const texto = celulaEvento.innerText.trim();
+        if (!linha || idxEvento === -1) return false;
+        const texto = linha.cells[idxEvento]?.innerText.trim();
         const dataEvento = obterDataSegura(texto);
         if (dataEvento) {
-            const hoje = new Date();
-            hoje.setHours(0,0,0,0);
-            dataEvento.setHours(0,0,0,0);
-            const diffTime = Math.abs(hoje - dataEvento);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-            if (diffDays >= 30) {
-                // Preservação infalível da classe contra escritas do DOM (Eproc Nativo)
+            const hoje = new Date(); hoje.setHours(0,0,0,0); dataEvento.setHours(0,0,0,0);
+            if (Math.ceil(Math.abs(hoje - dataEvento) / 86400000) >= 30) {
                 linha.classList.add('tr-paralisado');
-                
-                const link = linha.querySelector('a[href*="acao=processo_selecionar"]');
-                if (link) {
-                    const num = link.innerText.trim().replace(/\D/g, '');
-                    // Se foi detectado novo nesta mesma aba/sessão, restaura a classe na linha!
-                    if (paralisadosNovosSessao.has(num)) {
-                        linha.classList.add('tr-novo-paralisado');
-                    }
-                }
+                const num = linha.querySelector('a[href*="acao=processo_selecionar"]')?.innerText.trim().replace(/\D/g, '');
+                if (num && paralisadosNovosSessao.has(num)) linha.classList.add('tr-novo-paralisado');
                 return true;
-            } else {
-                linha.classList.remove('tr-paralisado');
-                linha.classList.remove('tr-novo-paralisado');
-            }
+            } else { linha.classList.remove('tr-paralisado', 'tr-novo-paralisado'); }
         }
         return false;
     }
 
-    // --- CORREÇÃO ANTI-CONGELAMENTO: CHUNK PROCESSING ---
     let isScanning = false;
-
     function gerenciarColunasEProcessos() {
-        if (isScanning) return;
-
-        // OTIMIZAÇÃO LAZY: Só inicia se o DB estiver "pronto" (agora instantâneo)
-        if (!CacheManager.ready) return;
-
-        if (!location.href.includes('acao=localizador_processos_lista')) return;
+        if (isScanning || !CacheManager.ready) return;
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return;
-
-        // CRIAÇÃO DO CABEÇALHO (RÁPIDO)
         const header = tabela.querySelector('tr.infraTr') || tabela.querySelector('tr');
-        let idxEvento = -1;
-        Array.from(header.cells).forEach((c, i) => { if (c.textContent.includes("Último Evento")) idxEvento = i; });
+        let idxEvento = -1; Array.from(header.cells).forEach((c, i) => { if (c.textContent.includes("Último Evento")) idxEvento = i; });
         if (idxEvento === -1) return;
 
-        // Insere Coluna Recebido
         if (!header.querySelector('.th-nucleo-40')) {
-            const th = document.createElement('th');
-            th.className = 'infraTh th-nucleo-40';
-            th.innerHTML = `Recebido em <span class="sort-icon">⇅</span>`;
-            header.insertBefore(th, header.cells[idxEvento]);
-            th.onclick = ordenarPorData;
+            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-40'; th.innerHTML = `Recebido em <span class="sort-icon">⇅</span>`;
+            header.insertBefore(th, header.cells[idxEvento]); th.onclick = () => ordenarPor('.eproc-col-data-nucleo', 'ordemData');
         }
-
-
-        // Insere Coluna Origem
         if (!header.querySelector('.th-nucleo-origem')) {
-            const th = document.createElement('th');
-            th.className = 'infraTh th-nucleo-origem';
-            th.innerHTML = `Origem <span class="sort-icon">⇅</span>`;
-            const thRecebido = header.querySelector('.th-nucleo-40');
-            if(thRecebido && thRecebido.nextSibling) {
-                header.insertBefore(th, thRecebido.nextSibling);
-            } else {
-                header.appendChild(th);
-            }
-            th.onclick = ordenarPorOrigem;
+            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-origem'; th.innerHTML = `Origem <span class="sort-icon">⇅</span>`;
+            const thRec = header.querySelector('.th-nucleo-40');
+            if(thRec && thRec.nextSibling) header.insertBefore(th, thRec.nextSibling); else header.appendChild(th);
+            th.onclick = () => ordenarPor('.eproc-col-origem-nucleo', 'ordemOrigem');
         }
 
         const colIdxDate = header.querySelector('.th-nucleo-40').cellIndex;
-
-        // PROCESSAMENTO DE LINHAS EM LOTES (CHUNKS)
-        isScanning = true;
-        const linhas = Array.from(tabela.querySelectorAll('tr[class^="infraTr"]'));
-
-        let temParalisado = false;
-        let index = 0;
-        const chunkSize = 20;
+        isScanning = true; const linhas = Array.from(tabela.querySelectorAll('tr[class^="infraTr"]'));
+        let index = 0; const chunkSize = 20;
 
         function processarChunk() {
             const fim = Math.min(index + chunkSize, linhas.length);
             const keysToWarm =[];
-
-            // PRÉ-SCAN: Identifica IDs necessários para este lote e adiciona indexação de texto
             for (let i = index; i < fim; i++) {
-                const tr = linhas[i];
-                if (tr.querySelector('th')) continue;
-
-                // Indexação Prévia (Cache DOM - Texto)
-                if (!tr.hasAttribute('data-idx-text')) {
-                    tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
-                }
-
-                // Coleta IDs para Warmup do Cache (Bulk Get)
+                const tr = linhas[i]; if (tr.querySelector('th')) continue;
+                if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
+                
                 const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
                 if (link) {
                     const numProc = link.innerText.trim().replace(/\D/g, '');
-                    if (!CacheManager.getSync(numProc)) {
-                         keysToWarm.push(numProc);
-                    }
+                    if (!CacheManager.getSync(numProc)) keysToWarm.push(numProc);
                 }
             }
 
-            // OTIMIZAÇÃO: Bulk Get (Leitura em Lote do IDB) antes de processar visualmente
             CacheManager.warmupChunk(keysToWarm).then(() => {
                 for (let i = index; i < fim; i++) {
-                    const tr = linhas[i];
-                    if (tr.querySelector('th')) continue;
+                    const tr = linhas[i]; if (tr.querySelector('th')) continue;
+                    verificarParalisacao(tr, idxEvento);
 
-                    if (verificarParalisacao(tr, idxEvento)) temParalisado = true;
-
-                    // Cria Célula Data
                     let tdDate = tr.querySelector('.eproc-col-data-nucleo');
-                    if (!tdDate) {
-                        tdDate = document.createElement('td');
-                        tdDate.className = 'infraTd eproc-col-data-nucleo';
-                        tdDate.textContent = "...";
-                        tr.insertBefore(tdDate, tr.cells[colIdxDate]);
-                    }
-
-                    // Cria Célula Origem
+                    if (!tdDate) { tdDate = document.createElement('td'); tdDate.className = 'infraTd eproc-col-data-nucleo'; tdDate.textContent = "..."; tr.insertBefore(tdDate, tr.cells[colIdxDate]); }
                     let tdOrigem = tr.querySelector('.eproc-col-origem-nucleo');
                     if (!tdOrigem) {
-                        tdOrigem = document.createElement('td');
-                        tdOrigem.className = 'infraTd eproc-col-origem-nucleo';
-                        tdOrigem.textContent = "...";
-                        if (tdDate.nextSibling) {
-                            tr.insertBefore(tdOrigem, tdDate.nextSibling);
-                        } else {
-                            tr.appendChild(tdOrigem);
-                        }
+                        tdOrigem = document.createElement('td'); tdOrigem.className = 'infraTd eproc-col-origem-nucleo'; tdOrigem.textContent = "...";
+                        if (tdDate.nextSibling) tr.insertBefore(tdOrigem, tdDate.nextSibling); else tr.appendChild(tdOrigem);
                     }
 
-                    const status = tr.getAttribute('data-nucleo-status');
-                    const carregado = tr.getAttribute('data-nucleo-carregado');
-
-                    if (!carregado && !status) {
+                    if (!tr.getAttribute('data-nucleo-carregado') && !tr.getAttribute('data-nucleo-status')) {
                         const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                        if (link) {
-                            const numProc = link.innerText.trim().replace(/\D/g, '');
-                            // Como fizemos o warmupChunk, o "add" vai achar no Cache Sync (RAM) se existir no IDB
-                            filaDeProcessamento.add(link.href, tdDate, tr, numProc);
-                        } else {
-                            tdDate.textContent = "-";
-                            tdOrigem.textContent = "-";
-                            tr.setAttribute('data-nucleo-carregado', 'true');
-                        }
+                        if (link) filaDeProcessamento.add(link.href, tdDate, tr, link.innerText.trim().replace(/\D/g, ''));
+                        else { tdDate.textContent = "-"; tdOrigem.textContent = "-"; tr.setAttribute('data-nucleo-carregado', 'true'); }
                     }
                 }
-
                 index = fim;
-                if (index < linhas.length) {
-                    requestAnimationFrame(processarChunk);
-                } else {
+                if (index < linhas.length) requestAnimationFrame(processarChunk);
+                else {
                     isScanning = false;
                     const alertaDiv = document.getElementById('eproc-alerta-paralisado');
                     if (alertaDiv) {
                         const trsParalisados = document.querySelectorAll('tr.tr-paralisado');
-                        const qtdParalisados = trsParalisados.length;
-
-                        if (qtdParalisados > 0) {
-                            // Otimização: Revalida e reconstrói o alerta só se houve mudança na contagem na tela
-                            const currentCountAttr = alertaDiv.getAttribute('data-qtd-paralisados');
-                            if (currentCountAttr !== String(qtdParalisados)) {
-                                alertaDiv.setAttribute('data-qtd-paralisados', String(qtdParalisados));
-
-                                const idsParalisados =[];
-                                const mapTrs = {};
+                        if (trsParalisados.length > 0) {
+                            if (alertaDiv.getAttribute('data-qtd-paralisados') !== String(trsParalisados.length)) {
+                                alertaDiv.setAttribute('data-qtd-paralisados', String(trsParalisados.length));
+                                const idsParalisados =[]; const mapTrs = {};
                                 trsParalisados.forEach(tr => {
-                                    const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                                    if (link) {
-                                        const num = link.innerText.trim().replace(/\D/g, '');
-                                        if(num) {
-                                            idsParalisados.push(num);
-                                            mapTrs[num] = tr;
-                                        }
-                                    }
+                                    const num = tr.querySelector('a[href*="acao=processo_selecionar"]')?.innerText.trim().replace(/\D/g, '');
+                                    if(num) { idsParalisados.push(num); mapTrs[num] = tr; }
                                 });
-
-                                // Validação pelo Banco (Descobrindo "Novos Paralisados")
                                 CacheManager.checkNovosParalisados(idsParalisados).then(novosIds => {
-                                    // Com a resiliência via set 'paralisadosNovosSessao', novosIds tem sempre
-                                    // a lista precisa de tudo que foi detectado de novo para ESTA aba em específico.
-                                    const contagemNovosNaTela = novosIds.length;
-
-                                    novosIds.forEach(id => {
-                                        if (mapTrs[id] && !mapTrs[id].classList.contains('tr-novo-paralisado')) {
-                                            mapTrs[id].classList.add('tr-novo-paralisado');
-                                        }
-                                    });
-
-                                    alertaDiv.style.display = 'flex';
-                                    alertaDiv.innerHTML = ''; // Limpa botões/textos anteriores para remontar
-
-                                    const textoSpan = document.createElement('span');
-                                    textoSpan.textContent = `⚠️ HÁ ${qtdParalisados} PROCESSOS PARALISADOS HÁ MAIS DE 30 DIAS! `;
-                                    alertaDiv.appendChild(textoSpan);
-
-                                    if (contagemNovosNaTela > 0) {
-                                        const badge = document.createElement('span');
-                                        badge.className = 'eproc-badge-novo';
-                                        badge.textContent = `Há ${contagemNovosNaTela} novos paralisados`;
-                                        alertaDiv.appendChild(badge);
+                                    novosIds.forEach(id => { if (mapTrs[id]) mapTrs[id].classList.add('tr-novo-paralisado'); });
+                                    alertaDiv.style.display = 'flex'; alertaDiv.innerHTML = '';
+                                    const textoSpan = document.createElement('span'); textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} PROCESSOS PARALISADOS HÁ MAIS DE 30 DIAS! `; alertaDiv.appendChild(textoSpan);
+                                    if (novosIds.length > 0) {
+                                        const badge = document.createElement('span'); badge.className = 'eproc-badge-novo'; badge.textContent = `Há ${novosIds.length} novos paralisados`; alertaDiv.appendChild(badge);
                                     }
-
-                                    criarBotoesAlerta(alertaDiv, idxEvento, qtdParalisados, contagemNovosNaTela);
+                                    criarBotoesAlerta(alertaDiv, idxEvento, trsParalisados.length, novosIds.length);
                                 });
                             }
-                        } else {
-                            alertaDiv.style.display = 'none';
-                            alertaDiv.removeAttribute('data-qtd-paralisados');
-                        }
+                        } else { alertaDiv.style.display = 'none'; alertaDiv.removeAttribute('data-qtd-paralisados'); }
                     }
-                    if (filaDeProcessamento.queue.length > 0 && filaDeProcessamento.active < MAX_CONCURRENCY) {
-                        filaDeProcessamento.process();
-                    }
+                    if (filaDeProcessamento.queue.length > 0 && filaDeProcessamento.active < MAX_CONCURRENCY) filaDeProcessamento.process();
                 }
             });
         }
-
         processarChunk();
     }
 
     function criarBotoesAlerta(alertaDiv, idxEvento, totalParalisados, totalNovos) {
-        const temNovos = totalNovos > 0;
-
-        const btnRel = document.createElement('button');
-        btnRel.id = 'eproc-relatorio-btn';
-        btnRel.textContent = "Gerar Relatório";
-        btnRel.type = "button";
-        alertaDiv.appendChild(btnRel);
-
+        const btnRel = document.createElement('button'); btnRel.id = 'eproc-relatorio-btn'; btnRel.textContent = "Gerar Relatório"; btnRel.type = "button"; alertaDiv.appendChild(btnRel);
         btnRel.onclick = (e) => {
             e.preventDefault(); e.stopPropagation();
-
-            const overlay = document.createElement('div');
-            overlay.className = 'eproc-modal-overlay';
-
-            // HTML extra caso haja novos processos, para o usuário escolher a abrangência
-            const seletorAbrangencia = temNovos ? `
+            const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
+            const seletorAbrangencia = totalNovos > 0 ? `
                 <div style="margin-bottom:15px; text-align:left; background:#f9f9f9; padding:10px; border-radius:4px; border:1px solid #eee;">
                     <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:8px; color:#555;">Abrangência do Relatório:</label>
-                    <label class="eproc-radio-label" style="margin-bottom:5px; display:flex; align-items:center; gap:5px; cursor:pointer;">
-                        <input type="radio" name="eproc-rel-scope" value="todos" checked> Todos os Paralisados (${totalParalisados})
-                    </label>
-                    <label class="eproc-radio-label" style="display:flex; align-items:center; gap:5px; cursor:pointer;">
-                        <input type="radio" name="eproc-rel-scope" value="novos"> Apenas Novos Paralisados (${totalNovos})
-                    </label>
-                </div>
-            ` : '';
-
-            overlay.innerHTML = `
-                <div class="eproc-modal-content" style="width: 340px; text-align:center;">
-                    <div class="eproc-modal-title">Relatório de Paralisados</div>
-                    <p style="margin-bottom:15px; color:#555; font-size:13px;">Selecione o formato desejado:</p>
-                    ${seletorAbrangencia}
-                    <button id="btn-rel-geral" class="eproc-btn" style="width:100%; margin-bottom:10px; font-weight:bold;">Relatório Geral</button>
-                    <button id="btn-rel-digito" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Relatório Por Dígito</button>
-                    <button id="btn-rel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button>
-                </div>
-            `;
+                    <label class="eproc-radio-label" style="margin-bottom:5px;"><input type="radio" name="eproc-rel-scope" value="todos" checked> Todos os Paralisados (${totalParalisados})</label>
+                    <label class="eproc-radio-label"><input type="radio" name="eproc-rel-scope" value="novos"> Apenas Novos Paralisados (${totalNovos})</label>
+                </div>` : '';
+            overlay.innerHTML = `<div class="eproc-modal-content" style="width:340px; text-align:center;"><div class="eproc-modal-title">Relatório de Paralisados</div>${seletorAbrangencia}
+                <button id="btn-rel-geral" class="eproc-btn" style="width:100%; margin-bottom:10px; font-weight:bold;">Relatório Geral</button>
+                <button id="btn-rel-digito" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Relatório Por Dígito</button>
+                <button id="btn-rel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
             document.body.appendChild(overlay);
-
-            const removeOverlay = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
-
-            // Helper function para pegar apenas o NodeList que o usuário solicitou
+            
+            const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
+            
             const getFiltrados = () => {
                 let paralisados = Array.from(document.querySelectorAll('tr.tr-paralisado'));
-                if (temNovos) {
-                    const scopeElem = document.querySelector('input[name="eproc-rel-scope"]:checked');
-                    if (scopeElem && scopeElem.value === 'novos') {
-                        paralisados = paralisados.filter(tr => tr.classList.contains('tr-novo-paralisado'));
-                    }
+                if (totalNovos > 0 && document.querySelector('input[name="eproc-rel-scope"]:checked')?.value === 'novos') {
+                    paralisados = paralisados.filter(tr => tr.classList.contains('tr-novo-paralisado'));
                 }
                 return paralisados;
             };
-
-            document.getElementById('btn-rel-cancel').onclick = removeOverlay;
-
+            
+            document.getElementById('btn-rel-cancel').onclick = fechar;
+            
             document.getElementById('btn-rel-geral').onclick = () => {
-                removeOverlay();
-                const paralisados = getFiltrados();
-                if (paralisados.length === 0) return;
-                let html = '<table border="1"><thead><tr><th>Processo</th><th>Último Evento</th></tr></thead><tbody>';
-                let texto = 'Processo\tÚltimo Evento\n';
+                const paralisados = getFiltrados(); 
+                fechar(); 
+                if (!paralisados.length) return;
+                
+                let html = '<table border="1"><thead><tr><th>Processo</th><th>Último Evento</th></tr></thead><tbody>'; let texto = 'Processo\tÚltimo Evento\n';
                 paralisados.forEach(tr => {
-                    const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                    const celulaEvento = tr.cells[idxEvento];
-                    const numProc = linkProc ? linkProc.innerText.trim() : "N/A";
-                    const hrefProc = linkProc ? linkProc.href : "";
-                    const txtEvento = celulaEvento ? celulaEvento.innerText.replace(/\s+/g, ' ').trim() : "";
-                    html += `<tr><td><a href="${hrefProc}">${numProc}</a></td><td>${txtEvento}</td></tr>`;
-                    texto += `${numProc}\t${txtEvento}\n`;
+                    const l = tr.querySelector('a[href*="acao=processo_selecionar"]'); const c = tr.cells[idxEvento];
+                    const num = l ? l.innerText.trim() : "N/A"; const evt = c ? c.innerText.replace(/\s+/g, ' ').trim() : "";
+                    html += `<tr><td><a href="${l?.href||''}">${num}</a></td><td>${evt}</td></tr>`; texto += `${num}\t${evt}\n`;
                 });
-                html += '</tbody></table>';
-                copiarParaClipboard(html, texto);
+                html += '</tbody></table>'; copiarParaClipboard(html, texto);
             };
-
+            
             document.getElementById('btn-rel-digito').onclick = () => {
-                removeOverlay();
-                const paralisados = getFiltrados();
-                if (paralisados.length === 0) return;
-
+                const paralisados = getFiltrados(); 
+                fechar(); 
+                if (!paralisados.length) return;
+                
                 const buckets = Array.from({length: 10}, () =>[]);
-
                 paralisados.forEach(tr => {
-                    const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                    if(linkProc) {
-                        const numProc = linkProc.innerText.trim();
-                        const hrefProc = linkProc.href;
-                        const match = numProc.match(/(\d)-/);
-                        if(match) {
-                            const digit = parseInt(match[1]);
-                            if (!isNaN(digit) && digit >= 0 && digit <= 9) {
-                                buckets[digit].push({ num: numProc, href: hrefProc });
-                            }
-                        }
-                    }
+                    const l = tr.querySelector('a[href*="acao=processo_selecionar"]');
+                    if(l) { const num = l.innerText.trim(); const d = parseInt(num.match(/(\d)-/)?.[1]); if (!isNaN(d)) buckets[d].push({ num, href: l.href }); }
                 });
-
+                let html = '<table border="1" style="border-collapse:collapse;text-align:center;"><thead><tr>';
+                for(let i=0; i<=9; i++) html += `<th style="background:#f0f0f2;padding:5px;">Dígito ${i}</th>`; html += '</tr></thead><tbody>';
                 const maxRows = Math.max(...buckets.map(b => b.length));
-
-                let html = '<table border="1" style="border-collapse: collapse; text-align: center;"><thead><tr>';
-                for(let i=0; i<=9; i++) html += `<th style="background:#f0f0f2; padding:5px;">Dígito ${i}</th>`;
-                html += '</tr></thead><tbody>';
-
                 for(let r=0; r<maxRows; r++) {
-                    html += '<tr>';
-                    for(let d=0; d<=9; d++) {
-                        const item = buckets[d][r];
-                        if(item) {
-                            html += `<td style="padding:4px;"><a href="${item.href}">${item.num}</a></td>`;
-                        } else {
-                            html += '<td></td>';
-                        }
-                    }
-                    html += '</tr>';
-                }
-                html += '</tbody></table>';
-
-                let texto = '';
-                for(let d=0; d<=9; d++) {
-                    if(buckets[d].length > 0) {
-                        texto += `--- DÍGITO ${d} ---\n`;
-                        buckets[d].forEach(item => texto += `${item.num}\n`);
-                        texto += `\n`;
-                    }
-                }
-
+                    html += '<tr>'; for(let d=0; d<=9; d++) { const item = buckets[d][r]; html += item ? `<td style="padding:4px;"><a href="${item.href}">${item.num}</a></td>` : '<td></td>'; } html += '</tr>';
+                } html += '</tbody></table>';
+                let texto = ''; for(let d=0; d<=9; d++) { if(buckets[d].length) { texto += `--- DÍGITO ${d} ---\n`; buckets[d].forEach(item => texto += `${item.num}\n`); texto += `\n`; } }
                 copiarParaClipboard(html, texto);
             };
         };
 
-        const btnSel = document.createElement('button');
-        btnSel.id = 'eproc-selecionar-paralisados-btn';
-        btnSel.textContent = "Selecionar Paralisados";
-        btnSel.type = "button";
-        alertaDiv.appendChild(btnSel);
-
-        // --- LÓGICA DE SELEÇÃO AJUSTADA COM MODAL (SE HOUVER NOVOS) ---
+        const btnSel = document.createElement('button'); btnSel.id = 'eproc-selecionar-paralisados-btn'; btnSel.textContent = "Selecionar Paralisados"; btnSel.type = "button"; alertaDiv.appendChild(btnSel);
         btnSel.onclick = (e) => {
             e.preventDefault(); e.stopPropagation();
-
-            if (!temNovos) {
-                // Comportamento original imediato caso não haja novidades
-                executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado')));
-                return;
-            }
-
-            // Exibe modal indagando abrangência
-            const overlay = document.createElement('div');
-            overlay.className = 'eproc-modal-overlay';
-            overlay.innerHTML = `
-                <div class="eproc-modal-content" style="width: 320px; text-align:center;">
-                    <div class="eproc-modal-title">Selecionar Paralisados</div>
-                    <p style="margin-bottom:15px; color:#555; font-size:13px;">Quais processos deseja selecionar?</p>
-                    <button id="btn-sel-todos" class="eproc-btn" style="width:100%; margin-bottom:10px; font-weight:bold;">Todos os Paralisados (${totalParalisados})</button>
-                    <button id="btn-sel-novos" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Apenas os Novos (${totalNovos})</button>
-                    <button id="btn-sel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button>
-                </div>
-            `;
+            if (totalNovos === 0) { executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado'))); return; }
+            const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
+            overlay.innerHTML = `<div class="eproc-modal-content" style="width:320px;text-align:center;"><div class="eproc-modal-title">Selecionar Paralisados</div>
+                <button id="btn-sel-todos" class="eproc-btn" style="width:100%;margin-bottom:10px;font-weight:bold;">Todos os Paralisados (${totalParalisados})</button>
+                <button id="btn-sel-novos" class="eproc-btn eproc-btn-secondary" style="width:100%;margin-bottom:15px;font-weight:bold;">Apenas os Novos (${totalNovos})</button>
+                <button id="btn-sel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
             document.body.appendChild(overlay);
-
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
-
             document.getElementById('btn-sel-cancel').onclick = fechar;
-            
-            document.getElementById('btn-sel-todos').onclick = () => {
-                fechar();
-                executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado')));
-            };
-            
-            document.getElementById('btn-sel-novos').onclick = () => {
-                fechar();
-                executarSelecao(Array.from(document.querySelectorAll('tr.tr-novo-paralisado')));
-            };
+            document.getElementById('btn-sel-todos').onclick = () => { fechar(); executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado'))); };
+            document.getElementById('btn-sel-novos').onclick = () => { fechar(); executarSelecao(Array.from(document.querySelectorAll('tr.tr-novo-paralisado'))); };
         };
 
-        // Função de execução do click nativa extraída para reutilização
         function executarSelecao(paralisados) {
-            if (paralisados.length === 0) {
-                alert('Nenhum processo correspondente identificado na tela ainda.');
-                return;
-            }
-
+            if (!paralisados.length) { alert('Nenhum processo correspondente identificado na tela ainda.'); return; }
             requestAnimationFrame(() => {
                 let count = 0;
                 paralisados.forEach(tr => {
                     const chk = tr.querySelector('input[type="checkbox"]');
-                    if (chk) {
-                        if(!chk.checked) chk.click(); // Dispara evento do EPROC
+                    if (chk) { if(!chk.checked) chk.click(); tr.style.backgroundColor = '#eef8fa'; tr.style.borderLeft = '4px solid #0081c2'; count++; }
+                });
+                document.getElementById('eproc-contador').textContent = `Itens selecionados: ${document.querySelectorAll('table tr input[type="checkbox"]:checked').length}`;
+            });
+        }
+    }
+
+    // ===========================================================================================
+    // PARTE 4: ASSISTENTE DE DISTRIBUIÇÃO E LÓGICA DE INTERFACE
+    // ===========================================================================================
+    
+    function parseOrigem(textoOrigem) {
+        if (!textoOrigem) return null;
+        let comarca = "";
+        let vara = "ÚNICA"; 
+
+        const matchSigla = textoOrigem.match(/\b([A-Z]{3})\b/);
+        if (matchSigla && COMARCAS_MAP[matchSigla[1]]) {
+            comarca = COMARCAS_MAP[matchSigla[1]];
+        } else {
+            for (const [sigla, nome] of Object.entries(COMARCAS_MAP)) {
+                if (textoOrigem.toUpperCase().includes(nome.toUpperCase())) { comarca = nome; break; }
+            }
+        }
+
+        const cleanText = textoOrigem.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        if (!cleanText.includes("UNICA") && !cleanText.includes("ÚNICA")) {
+            const matchVara = cleanText.match(/(\d+)[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
+            if (matchVara) vara = matchVara[1] + "VC"; 
+        }
+
+        if (comarca) return { comarca, vara };
+        return null;
+    }
+
+    function findLocalizadorIdNoDropdown(parsedOrigem) {
+        if (!parsedOrigem) return null;
+        const options = Array.from(document.querySelectorAll('#selNovoLocalizador option'));
+        const searchComarca = parsedOrigem.comarca.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        
+        for (let opt of options) {
+            const txt = opt.text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+            if (txt.includes("NB/JC") && txt.includes(searchComarca)) {
+                if (parsedOrigem.vara === "ÚNICA") {
+                    if (!txt.match(/\d+VC/)) return opt;
+                } else {
+                    if (txt.includes(parsedOrigem.vara)) return opt; 
+                }
+            }
+        }
+        return null;
+    }
+
+    function abrirAssistenteDistribuicao() {
+        // --- 1. Expandir o painel "Gerenciar Localizadores" se estiver fechado ---
+        const painelLoc = document.getElementById('conteudoAlterarLocalizadores');
+        if (painelLoc && painelLoc.style.display === 'none') {
+            const legendLoc = document.querySelector('#fldAlterarLocalizadores legend');
+            if (legendLoc) legendLoc.click();
+        }
+
+        // --- Processamento dos Processos Visíveis ---
+        const linhas = document.querySelectorAll('tr[class^="infraTr"]');
+        const grupos = {}; 
+        let totalValidos = 0;
+
+        linhas.forEach(linha => {
+            if (linha.querySelector('th')) return;
+            
+            const tdOrigem = linha.querySelector('.eproc-col-origem-nucleo');
+            const tds = Array.from(linha.querySelectorAll('td'));
+            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6]; 
+            
+            if (!tdOrigem || !tdLocalizadores) return;
+            
+            const textoOrigem = tdOrigem.innerText.trim();
+            const textoLocsAtual = tdLocalizadores.innerText.toUpperCase().replace(/[^A-Z0-9]/g, ''); 
+            
+            if(textoOrigem === "..." || textoOrigem === "-") return;
+
+            const parsed = parseOrigem(textoOrigem);
+            const optTarget = findLocalizadorIdNoDropdown(parsed);
+
+            if (optTarget && optTarget.value !== "null") {
+                const targetNameClean = optTarget.text.split('-')[1]?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || optTarget.text.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                
+                if (!textoLocsAtual.includes(targetNameClean)) {
+                    const locNameDisplay = optTarget.text;
+                    if (!grupos[optTarget.value]) grupos[optTarget.value] = { nome: locNameDisplay, linhas:[] };
+                    grupos[optTarget.value].linhas.push(linha);
+                    totalValidos++;
+                }
+            }
+        });
+
+        if (totalValidos === 0) {
+            alert("Não há processos pendentes de distribuição inteligente na tela atual.\nTodos já possuem localizador ou não foi possível mapear a origem.");
+            return;
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'eproc-modal-overlay';
+        
+        let htmlBotoes = '';
+        Object.keys(grupos).forEach(val => {
+            const grp = grupos[val];
+            htmlBotoes += `
+                <div style="border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-bottom: 10px; background-color: #fcfcfc;">
+                    <div style="font-weight: bold; color: #333; font-size: 13px; margin-bottom: 5px;">${grp.nome}</div>
+                    <div style="font-size: 11px; color: #777; margin-bottom: 8px;">Processos sem este localizador: <b>${grp.linhas.length}</b></div>
+                    <button class="eproc-btn eproc-btn-secondary" style="width:100%; font-size:11px; border-color:#0081c2;" onclick="window.aplicarDistribuicaoGrupo('${val}')">Distribuir para este Localizador</button>
+                </div>
+            `;
+        });
+
+        overlay.innerHTML = `
+            <div class="eproc-modal-content" style="width: 420px; max-height: 85vh; overflow-y: auto;">
+                <div class="eproc-modal-title">🪄 Distribuição Inteligente por Vara</div>
+                <p style="font-size:12px; color:#666; margin-bottom:15px;">Processos filtrados e agrupados por Vara, ignorados os que já contem com o respectivo localizador.</p>
+                <div style="padding-right:5px; margin-bottom:15px;">
+                    ${htmlBotoes}
+                </div>
+                <button class="eproc-btn eproc-btn-danger" style="width:100%;" onclick="document.body.removeChild(this.closest('.eproc-modal-overlay'))">Sair</button>
+            </div>
+        `;
+
+        window.aplicarDistribuicaoGrupo = function(targetValue) {
+            if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
+            else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
+            
+            document.querySelectorAll('tr[style*="background-color"]').forEach(tr => { tr.style.backgroundColor=''; tr.style.borderLeft=''; });
+
+            requestAnimationFrame(() => {
+                let count = 0;
+                
+                grupos[targetValue].linhas.forEach(tr => {
+                    const chk = tr.querySelector('input[type="checkbox"]');
+                    if (chk && !chk.checked) {
+                        chk.click(); 
                         tr.style.backgroundColor = '#eef8fa';
                         tr.style.borderLeft = '4px solid #0081c2';
                         count++;
                     }
                 });
+                
+                document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
+                
+                // O timeout garante que o EPROC finalizou de carregar as caixas nativas após o clique no checkbox, 
+                // para que então o nosso código acione o "Desmarcar todos" com sucesso e segurança absolutos.
+                setTimeout(() => {
+                    const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
+                    if (btnDesmarcar) {
+                        btnDesmarcar.click();
+                    } else {
+                        const selectDesativarLoc = document.getElementById('selLocalizadorDesativar');
+                        if (selectDesativarLoc) {
+                            Array.from(selectDesativarLoc.options).forEach(opt => opt.selected = false);
+                            selectDesativarLoc.dispatchEvent(new Event('change'));
+                        }
+                    }
 
-                const total = document.querySelectorAll('table tr input[type="checkbox"]:checked').length;
-                document.getElementById('eproc-contador').textContent = `Itens selecionados: ${total}`;
+                    const selectNovoLoc = document.getElementById('selNovoLocalizador');
+                    if (selectNovoLoc) {
+                        selectNovoLoc.value = targetValue;
+                        selectNovoLoc.dispatchEvent(new Event('change'));
+                        if(typeof $ !== 'undefined' && $(selectNovoLoc).hasClass('selectpicker')){
+                            $(selectNovoLoc).selectpicker('refresh');
+                        }
+                    }
+
+                    document.body.removeChild(overlay);
+                    mostrarToast(`Pronto! Clique em "Alterar Localizador" nas Ações.`);
+                    document.getElementById('fldAcoes')?.scrollIntoView({behavior: "smooth", block: "center"});
+                }, 50);
             });
-        }
+        };
+
+        document.body.appendChild(overlay);
     }
 
-
-    // ===========================================================================================
-    // PARTE 4: INTERFACE E LÓGICA DE FILTRO E MELHORIAS NATIVAS
-    // ===========================================================================================
-
-    // --- MELHORIA: GERENCIAR LOCALIZADORES (PERMITIR APENAS EXCLUSÃO) ---
     function melhorarGerenciarLocalizadores() {
         if (typeof window.alterarLocalizador === 'function') {
             const originalAlterarLocalizador = window.alterarLocalizador;
@@ -1376,23 +1057,18 @@
                     }
                 }
 
-                // Se não escolheu novo localizador
                 if (isNovoVazio) {
-                    // Mas escolheu algum localizador atual para excluir
                     if (hasDesativar) {
-                        // Redireciona a ação do usuário para a função nativa de EXCLUSÃO do EPROC
                         if (typeof window.validarSelecao === 'function') {
                             window.validarSelecao();
                         } else {
                             alert('Erro: Função nativa de exclusão do EPROC não foi encontrada.');
                         }
                     } else {
-                        // Nenhuma opção foi escolhida nem pra novo nem pra excluir
                         alert('Informe o novo localizador ou selecione localizadores atuais para excluir.');
                         if (novoLoc) novoLoc.focus();
                     }
                 } else {
-                    // Fluxo nativo inalterado caso haja um novo localizador
                     originalAlterarLocalizador();
                 }
             };
@@ -1411,7 +1087,6 @@
         let estadoFiltros =[];
         let modoReordenacao = false;
 
-        // FUNÇÕES SÍNCRONAS DE PREFERÊNCIAS (VIA LOCALSTORAGE)
         function salvarBotoesPersonalizados() {
             localStorage.setItem(LS_KEY_BOTOES, JSON.stringify(botoesPersonalizados));
             atualizarOrdemBotoes();
@@ -1452,7 +1127,6 @@
             const div = document.getElementById('divPaginacao');
             if (!div || document.getElementById('optPaginacao1000')) return;
             const d = document.createElement('div');
-            // ADICIONADA QUEBRA DE LINHA <br> ENTRE OS DOIS INPUTS PARA GARANTIR QUE 1000 FIQUE ABAIXO DE 500
             d.innerHTML = `<input type="radio" name="paginacao" id="optPaginacao500" value="500" class="infraRadio mr-2"><label for="optPaginacao500" class="infraRadio mr-2">500 processos por página</label><br>
                            <input type="radio" name="paginacao" id="optPaginacao1000" value="1000" class="infraRadio mr-2"><label for="optPaginacao1000" class="infraRadio mr-2">1000 processos por página</label>`;
             div.appendChild(d);
@@ -1463,13 +1137,11 @@
 
             document.querySelectorAll('input[name="paginacao"]').forEach(r => r.addEventListener('change', e => {
              localStorage.setItem(LS_KEY_PAGINACAO, e.target.value);
-             // Salva o cookie IMEDIATAMENTE ao clicar, garantindo que o servidor receba a instrução correta
              document.cookie = `paginacao=${e.target.value};path=/;max-age=3600`;
         }));
         }
 
         function validarIntervaloData(linha, dtInicio, dtFim) {
-            // Otimização: Recebe as datas já parseadas do lado de fora, não busca DOM aqui
             if (!dtInicio && !dtFim) return true;
 
             const modoRecebimento = document.getElementById('eproc-radio-recebimento').checked;
@@ -1505,7 +1177,6 @@
             return true;
         }
 
-        // CÃO DE GUARDA
         function verificarPendenciasReais() {
             let pendentes = 0;
             const linhas = document.querySelectorAll('tr[class^="infraTr"]');
@@ -1523,8 +1194,6 @@
                 const temSpinner = td.querySelector('.eproc-spinner');
                 const statusAtivo = tr.getAttribute('data-nucleo-status');
 
-                // Se tiver spinner, texto vazio ou status 'queued', está pendente.
-                // NOTE: 'checking-cache' não deve ocorrer mais com o Memory Mirroring, pois é instantâneo.
                 if (temSpinner || texto === '...' || texto === '' || statusAtivo === 'queued' || statusAtivo === 'processing') {
                     pendentes++;
                 }
@@ -1556,31 +1225,25 @@
             cicloMonitoramento();
         }
 
-        // --- LÓGICA DE FILTRO OTIMIZADA: SEM DOM THRASHING ---
         function aplicarFiltros() {
             const inicioVal = document.getElementById('eproc-data-inicio').value;
             const fimVal = document.getElementById('eproc-data-fim').value;
             const temFiltros = estadoFiltros.length > 0;
             const temData = inicioVal !== '' || fimVal !== '';
 
-            // 0. Se não há nada para filtrar, limpa tudo rápido
             if (!temFiltros && !temData) {
                 limparSelecao();
                 return;
             }
 
-            // 1. Prepara dados de entrada uma única vez
             const dtInicio = inicioVal ? new Date(inicioVal + 'T00:00:00') : null;
             const dtFim = fimVal ? new Date(fimVal + 'T00:00:00') : null;
 
-            // Otimização: pré-compila filtros para maiúsculas
             const filtrosOtimizados = estadoFiltros.map(f => ({
                 ...f,
                 valorUpper: f.valor.toUpperCase()
             }));
 
-            // 2. Fase de LEITURA (Read Phase)
-            // Coleta todas as alterações necessárias sem tocar no DOM (exceto leitura)
             const updates =[];
             const linhas = document.querySelectorAll('tr[class^="infraTr"]');
 
@@ -1588,19 +1251,15 @@
 
             linhas.forEach(linha => {
                 const chk = linha.querySelector('input[type="checkbox"]');
-                if (!chk || chk.disabled) return; // Ignora cabeçalhos ou desabilitados
+                if (!chk || chk.disabled) return; 
 
-                // Validação de Data (passando as datas já processadas)
                 if (!validarIntervaloData(linha, dtInicio, dtFim)) {
-                    // Se falhar na data, deve ser desmarcado
                      updates.push({ tr: linha, chk: chk, select: false });
                      return;
                 }
 
-                // Validação de Filtros de Texto
                 let passouTodosFiltros = true;
                 if (temFiltros) {
-                    // OTIMIZAÇÃO: LÊ DO ATRIBUTO INDEXADO (SEM RECALCULAR LAYOUT)
                     const linhaTexto = linha.getAttribute('data-idx-text') || "";
 
                     for (const filtro of filtrosOtimizados) {
@@ -1626,22 +1285,14 @@
                 }
             });
 
-            // 3. Fase de ESCRITA (Write Phase) - Batch via requestAnimationFrame
-            // Isso evita o travamento do navegador, mas usa .click() para garantir funcionalidade
             requestAnimationFrame(() => {
                 updates.forEach(up => {
                     if (up.select) {
-                        // CORREÇÃO CRÍTICA: Use click() se não estiver marcado para disparar eventos do EPROC
                         if (!up.chk.checked) up.chk.click();
-
-                        // Aplica estilos visuais diretamente
                         up.tr.style.backgroundColor = '#eef8fa';
                         up.tr.style.borderLeft = '4px solid #0081c2';
                     } else {
-                        // CORREÇÃO CRÍTICA: Use click() se estiver marcado para disparar eventos do EPROC
                         if (up.chk.checked) up.chk.click();
-
-                        // Remove estilos
                         up.tr.style.backgroundColor = '';
                         up.tr.style.borderLeft = '';
                     }
@@ -1652,35 +1303,27 @@
         }
 
         function selecionar(termo) {
-            // Função auxiliar de busca simples
             addFiltro('texto', termo, termo);
             aplicarFiltros();
         }
 
         function limparSelecao() {
-            // 1. Limpeza Lógica (Sistema Eproc)
-            // Tenta usar a função nativa do sistema (Instantâneo e correto)
             try {
                 if (typeof infraSelecionarTodos === 'function') {
                     infraSelecionarTodos(false);
                 } else {
-                    // Fallback: Dispara o clique real para atualizar o estado do sistema se a função nativa falhar
                     const checkboxes = document.querySelectorAll('table tr input[type="checkbox"]:checked');
                     for (let i = 0; i < checkboxes.length; i++) {
                         checkboxes[i].click();
                     }
                 }
             } catch (e) {
-                // Em caso de erro, garante a limpeza via clique um a um
                 const checkboxes = document.querySelectorAll('table tr input[type="checkbox"]:checked');
                 for (let i = 0; i < checkboxes.length; i++) {
                     checkboxes[i].click();
                 }
             }
 
-            // 2. Limpeza Visual (Interface do Script)
-            // Removemos o delay do requestAnimationFrame para parecer mais responsivo,
-            // mas usamos um seletor específico para não varrer a tabela inteira se possível.
             requestAnimationFrame(() => {
                 const linhas = document.querySelectorAll('tr[style*="background-color"]');
                 for (let i = 0; i < linhas.length; i++) {
@@ -1703,7 +1346,7 @@
                     if(f.tipo === 'data') { document.getElementById('eproc-data-inicio').value = ''; document.getElementById('eproc-data-fim').value = ''; }
                     estadoFiltros = estadoFiltros.filter(x => x.id !== f.id);
                     atualizarTags();
-                    aplicarFiltros(); // Re-aplica filtros ao remover
+                    aplicarFiltros();
                 };
                 div.appendChild(t);
             });
@@ -1755,7 +1398,6 @@
             const form = document.getElementById('frmProcessoLista');
             if(!form || document.getElementById('eproc-seletor')) return;
 
-            // Carrega preferências do LOCALSTORAGE (Agora é síncrono)
             try {
                 botoesPersonalizados = JSON.parse(localStorage.getItem(LS_KEY_BOTOES)) ||[];
                 ordemBotoes = JSON.parse(localStorage.getItem(LS_KEY_ORDEM)) ||[];
@@ -1770,11 +1412,15 @@
                 <div class="eproc-legend">Seletor Inteligente</div>
                 <div id="eproc-alerta-paralisado">⚠️ VERIFICANDO PROCESSOS PARALISADOS...</div>
 
-                <!-- TOAST DE FEEDBACK -->
                 <div id="eproc-toast">Processos copiados!</div>
 
                 <div class="eproc-row" style="justify-content: space-between;">
                    <div style="display:flex; gap:10px; align-items:center;">
+                        
+                        <button id="eproc-dist-magica" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Vara de origem" style="margin-right: 5px;">
+                            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.41l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.41zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>
+                        </button>
+
                         <span style="font-weight:bold;font-size:12px;">Fonte:</span>
                         <div class="eproc-radio-group">
                             <label class="eproc-radio-label"><input type="radio" name="eproc-tipo-data" id="eproc-radio-inclusao" value="inclusao" checked> Inclusão</label>
@@ -1790,11 +1436,9 @@
                 <div id="eproc-botoes-container" class="eproc-row" style="border-top: 1px solid #eee; padding-top: 10px;"></div>
                 <div class="eproc-row" style="flex-wrap: nowrap;">
                     <input type="text" id="eproc-termo" class="eproc-form-control" placeholder="Pesquisar..." style="flex-grow:1;">
-                    <!-- BOTÃO COPIAR COM ÍCONE NOVO -->
                     <button id="eproc-copy-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Copiar Selecionados">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                     </button>
-                    <!-- BOTÃO RELATÓRIO TRAMITAÇÃO (NOVO) -->
                     <button id="eproc-rel-tramitacao-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Relatório de Tramitação" style="margin-left:5px;">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
                     </button>
@@ -1807,16 +1451,16 @@
 
             const localDiv = document.getElementById('fldAcoes');
             if (localDiv) {
-                // Insere logo abaixo da caixa de botões superior (Gerenciar Localizadores)
                 form.insertBefore(div, localDiv.nextSibling);
             } else {
-                // Fallback de segurança
                 form.insertBefore(div, form.firstChild);
             }
             renderizarBotoes();
             aplicarHackPaginacao();
 
-            // EVENT LISTENERS EXISTENTES...
+            // EVENT LISTENERS
+            document.getElementById('eproc-dist-magica').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicao(); };
+
             document.getElementById('eproc-termo').addEventListener('keypress', (e) => {
                 if(e.key === 'Enter') { e.preventDefault(); const t = e.target.value; if(t) { addFiltro('texto', t, `"${t}"`); aplicarFiltros(); e.target.value=''; } }
             });
@@ -1846,22 +1490,15 @@
                 });
             };
 
-            // NOVO EVENT LISTENER: COPIAR SELECIONADOS
             document.getElementById('eproc-copy-btn').onclick = (e) => {
                 e.preventDefault();
-                // SELEÇÃO CORRIGIDA: Apenas checkboxes dentro de linhas de dados (infraTr), excluindo o header
                 const selecionados = document.querySelectorAll('tr[class^="infraTr"] input[type="checkbox"]:checked');
-
                 if (selecionados.length === 0) return;
-
                 let html = '<ul>';
                 let texto = '';
-
                 selecionados.forEach(chk => {
                     const tr = chk.closest('tr');
-                    // Verifica novamente se não é cabeçalho (segurança extra)
                     if (tr.querySelector('th')) return;
-
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     if (linkProc) {
                         const numProc = linkProc.innerText.trim();
@@ -1874,11 +1511,8 @@
                 copiarParaClipboard(html, texto);
             };
 
-            // NOVO EVENT LISTENER: RELATÓRIO DE TRAMITAÇÃO (ATUALIZADO)
             document.getElementById('eproc-rel-tramitacao-btn').onclick = (e) => {
                 e.preventDefault();
-
-                // Processa apenas o que já está na tela
                 const linhas = document.querySelectorAll('tr[class^="infraTr"]');
                 const dados =[];
                 const hoje = new Date();
@@ -1886,18 +1520,13 @@
 
                 linhas.forEach(tr => {
                     if (tr.querySelector('th')) return;
-
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     const tdData = tr.querySelector('.eproc-col-data-nucleo');
-
                     if (linkProc && tdData) {
                         const numProc = linkProc.innerText.trim();
                         const hrefProc = linkProc.href;
-                        // Tenta extrair a data se estiver visível
                         const dataTexto = tdData.innerText.trim();
                         const dataObj = obterDataSegura(dataTexto);
-
-                        // Só inclui no relatório se tiver data válida
                         if (dataObj) {
                             dataObj.setHours(0,0,0,0);
                             const diffTime = Math.abs(hoje - dataObj);
@@ -1911,19 +1540,14 @@
                     alert('Nenhuma data válida encontrada para os processos visíveis.');
                     return;
                 }
-
-                // Ordenar do mais antigo (maior dias) para o mais novo (menor dias)
                 dados.sort((a, b) => b.dias - a.dias);
-
                 let html = '<table border="1"><thead><tr><th>Processo</th><th>Tempo (Dias)</th></tr></thead><tbody>';
                 let texto = 'Processo\tTempo (Dias)\n';
-
                 dados.forEach(item => {
                     html += `<tr><td><a href="${item.href}">${item.num}</a></td><td>${item.dias}</td></tr>`;
                     texto += `${item.num}\t${item.dias}\n`;
                 });
                 html += '</tbody></table>';
-
                 copiarParaClipboard(html, texto);
             };
         }
@@ -1980,19 +1604,14 @@
             const form = document.getElementById('frmProcessoLista');
             if (!form) return;
 
-            // Intercepta a submissão nativa do EPROC (usada ao trocar de página)
             const originalSubmit = form.submit;
             form.submit = function() {
                 const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
                 if (tabela) {
                     const linhas = tabela.querySelectorAll('tr[class^="infraTr"]');
-
-                    // Só ativa a limpeza cirúrgica se a página estiver "pesada"
                     if (linhas.length > 50) {
                         linhas.forEach(tr => {
                             const chk = tr.querySelector('input[type="checkbox"]');
-                            // Se o processo NÃO estiver marcado, nós o "desativamos"
-                            // Isso impede que o navegador envie o lixo oculto dele pro servidor
                             if (chk && !chk.checked) {
                                 tr.querySelectorAll('input').forEach(inp => inp.disabled = true);
                                 tr.querySelectorAll('select').forEach(sel => sel.disabled = true);
@@ -2000,7 +1619,6 @@
                         });
                     }
                 }
-                // Libera a mudança de página, agora extremamente leve
                 originalSubmit.call(this);
             };
         }
