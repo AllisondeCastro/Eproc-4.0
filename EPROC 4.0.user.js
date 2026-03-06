@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.1
+// @version      45.2
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -23,9 +23,9 @@
 
     // CONFIGURAÇÕES DO INDEXEDDB (Cache de Processos e Controle de Paralisados)
     const DB_NAME = "EprocCacheDB";
-    const DB_VERSION = 2; // Incrementado para criar a nova base
+    const DB_VERSION = 2; 
     const STORE_NAME = "processos";
-    const STORE_PARALISADOS = "paralisados_vistos"; // Nova Store
+    const STORE_PARALISADOS = "paralisados_vistos"; 
     const EXPIRATION_DAYS = 90;
 
     // Chaves do LocalStorage (Preferências Leves)
@@ -41,55 +41,63 @@
     // Memória da Sessão Atual para "Novos Paralisados"
     const paralisadosNovosSessao = new Set();
 
+    // UTILITÁRIO GLOBAL: FILTRO SEGURO DE LINHAS DE DADOS
+    function getLinhasProcessos() {
+        const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
+        if (!tabela) return[];
+        // Filtra estritamente as linhas da tabela principal, ignorando cabeçalhos e tabelas aninhadas
+        return Array.from(tabela.rows).filter(tr => !tr.querySelector('th') && tr.closest('table') === tabela);
+    }
+
     // MAPA DE COMARCAS E SIGLAS (DISTRIBUIÇÃO INTELIGENTE)
     const COMARCAS_MAP = {
-        "AET": "ABAETÉ", "ABN": "ABRE-CAMPO", "ACN": "AÇUCENA", "AGF": "ÁGUAS FORMOSAS", "AOR": "AIMORÉS", "AUD": "AIURUOCA",
-        "API": "ALÉM PARAÍBA", "AFN": "ALFENAS", "AMN": "ALMENARA", "ALS": "ALPINÓPOLIS", "ADC": "ALTO RIO DOCE", "ALL": "ALVINÓPOLIS",
-        "ANA": "ANDRADAS", "ADL": "ANDRELÂNDIA", "AUI": "ARAÇUAÍ", "ARI": "ARAGUARI", "AXA": "ARAXÁ", "ACS": "ARCOS", "ADO": "AREADO",
-        "AYN": "ARINOS", "BAD": "BAEPENDI", "BBI": "BAMBUÍ", "BCS": "BARÃO DE COCAIS", "BCA": "BARBACENA", "BSO": "BARROSO",
-        "BHE": "BELO HORIZONTE", "BLL": "BELO VALE", "BET": "BETIM", "BIS": "BICAS", "BOE": "BOA ESPERANÇA", "BCV": "BOCAIÚVA",
-        "BDP": "BOM DESPACHO", "BMS": "BOM SUCESSO", "BFM": "BONFIM", "BFS": "BONFINÓPOLIS DE MINAS", "BOM": "BORDA DA MATA",
-        "BHS": "BOTELHOS", "BMN": "BRASÍLIA DE MINAS", "BPS": "BRAZÓPOLIS", "BMO": "BRUMADINHO", "BBD": "BUENO BRANDÃO", "BUS": "BUENÓPOLIS",
-        "BII": "BURITIS", "CBV": "CABO VERDE", "CHS": "CACHOEIRA DE MINAS", "CET": "CAETÉ", "CAD": "CALDAS", "CDU": "CAMANDUCAIA",
-        "CBI": "CAMBUÍ", "CAQ": "CAMBUQUIRA", "CPH": "CAMPANHA", "CST": "CAMPESTRE", "CVE": "CAMPINA VERDE", "CPO": "Campo Belo",
-        "CMT": "CAMPOS ALTOS", "CPG": "CAMPOS GERAIS", "COI": "CANÁPOLIS", "CWA": "CANDEIAS", "CLH": "CAPELINHA", "CNS": "CAPINÓPOLIS",
-        "CRD": "CARANDAÍ", "CRL": "CARANGOLA", "CGA": "CARATINGA", "CCH": "CARLOS CHAGAS", "COM": "CARMO DA MATA", "CAE": "CARMO DE MINAS",
-        "CCU": "CARMO DO CAJURU", "CMI": "CARMO DO PARANAÍBA", "CRC": "CARMO DO RIO CLARO", "CRM": "CARMÓPOLIS DE MINAS", "CSA": "CÁSSIA",
-        "CGS": "CATAGUASES", "CAX": "CAXAMBU", "CLU": "CLÁUDIO", "CLS": "CONCEIÇÃO DAS ALAGOAS", "CMD": "CONCEIÇÃO DO MATO DENTRO",
-        "CVR": "CONCEIÇÃO DO RIO VERDE", "CNG": "CONGONHAS", "CQT": "CONQUISTA", "CNL": "CONSELHEIRO LAFAIETE", "CSN": "CONSELHEIRO PENA",
-        "CEM": "CONTAGEM", "COJ": "CORAÇÃO DE JESUS", "CIT": "CORINTO", "CEL": "COROMANDEL", "CRF": "CORONEL FABRICIANO", "CSI": "CRISTINA",
-        "CZL": "CRUZÍLIA", "CUV": "CURVELO", "DMT": "DIAMANTINA", "DVO": "DIVINO", "DVL": "DIVINÓPOLIS", "DDI": "DORES DO INDAIÁ",
-        "ELM": "ELÓI MENDES", "ERM": "ENTRE-RIOS DE MINAS", "ERV": "ERVÁLIA", "EES": "ESMERALDAS", "EEP": "ESPERA FELIZ", "EPS": "ESPINOSA",
-        "EEL": "ESTRELA DO SUL", "EOS": "EUGENÓPOLIS", "EXM": "EXTREMA", "FES": "FERROS", "FMA": "FORMIGA", "FCS": "FRANCISCO SÁ",
-        "FRU": "FRUTAL", "GLL": "GALILÉIA", "GVS": "GOVERNADOR VALADARES", "GGL": "GRÃO-MOGOL", "GHE": "GUANHÃES", "GUE": "GUAPÉ",
-        "GSA": "GUARANÉSIA", "GNI": "GUARANI", "GPE": "GUAXUPÉ", "IBY": "IBIÁ", "III": "IBIRACI", "IIB": "IBIRITÉ", "IRP": "IGARAPÉ",
-        "IUM": "IGUATAMA", "INP": "INHAPIM", "YAN": "IPANEMA", "IIG": "IPATINGA", "IBA": "ITABIRA", "IRO": "ITABIRITO", "IGR": "ITAGUARA",
-        "IJA": "ITAJUBÁ", "IMR": "ITAMARANDIBA", "ITC": "ITAMBACURI", "IOG": "ITAMOJI", "IMO": "ITAMONTE", "ITD": "ITANHANDU", "INH": "ITANHOMI",
-        "IGY": "ITAPAJIPE", "IPC": "ITAPECERICA", "IAN": "ITAÚNA", "IUA": "ITUIUTABA", "IYM": "ITUMIRIM", "ITM": "ITURAMA", "JBU": "JABOTICATUBAS",
-        "JNT": "JACINTO", "JCU": "JACUÍ", "JTA": "JACUTINGA", "JAB": "JAÍBA", "JUA": "JANAÚBA", "JNU": "JANUÁRIA", "JQI": "JEQUERI",
-        "JQT": "JEQUITINHONHA", "JML": "João Monlevade", "JPI": "João Pinheiro", "JTB": "JUATUBA", "JFA": "Juiz de Fora", "LPT": "Lagoa da Prata",
-        "LGT": "Lagoa Santa", "LJA": "Lajinha", "LAM": "Lambari", "LAV": "Lavras", "LPD": "Leopoldina", "LAD": "Lima Duarte", "LUZ": "LUZ",
-        "MCD": "Machado", "MCH": "Malacacheta", "MAG": "Manga", "MNC": "Manhuaçu", "MIM": "Manhumirim", "MNN": "Mantena", "MEH": "Mar de Espanha",
-        "MRN": "Mariana", "MHC": "Martinho Campos", "MAL": "Mateus Leme", "MBB": "Matias Barbosa", "MTZ": "Matozinhos", "MDA": "Medina",
-        "MEE": "Mercês", "MQI": "Mesquita", "MNV": "Minas Novas", "MDO": "Miradouro", "MII": "Miraí", "MTV": "Montalvânia", "MAM": "Monte Alegre de Minas",
-        "MZL": "Monte Azul", "MBE": "Monte Belo", "MOO": "Monte Carmelo", "MSM": "Monte Santo de Minas", "MSI": "Monte Sião", "MCL": "Montes Claros",
-        "MNM": "Morada Nova de Minas", "MRE": "Muriaé", "MTM": "Mutum", "MUZ": "Muzambinho", "NNE": "Nanuque", "NAR": "Natércia", "NPO": "Nepomuceno",
-        "NER": "Nova Era", "NLA": "Nova Lima", "NVN": "Nova Ponte", "NES": "Nova Resende", "NVS": "Nova Serrana", "NZO": "Novo Cruzeiro",
-        "OLV": "Oliveira", "OUO": "Ouro Branco", "OUF": "Ouro Fino", "ORP": "Ouro Preto", "PAL": "Palma", "PRS": "Pará de Minas", "PTU": "Paracatu",
-        "PGC": "Paraguaçu", "PSP": "Paraisópolis", "PEB": "Paraopeba", "PQO": "Passa-Quatro", "PST": "Passa-Tempo", "PSS": "Passos", "PMS": "Patos de Minas",
-        "PTC": "Patrocínio", "PNH": "Peçanha", "PZL": "Pedra Azul", "PDV": "Pedralva", "PLO": "Pedro Leopoldo", "PEZ": "Perdizes", "PDS": "Perdões",
-        "PRG": "Piranga", "PPN": "Pirapetinga", "PRR": "Pirapora", "PTI": "Pitangui", "PIU": "Piumhi", "POF": "Poço Fundo", "PCS": "Poços de Caldas",
-        "PPE": "Pompéu", "PNV": "Ponte Nova", "PTH": "Porteirinha", "PSO": "Pouso Alegre", "PAD": "Prados", "PRT": "Prata", "PRO": "Pratápolis",
-        "PEE": "Presidente Olegário", "RSS": "Raul Soares", "RED": "Resende Costa", "RSP": "Resplendor", "RNS": "Ribeirão das Neves", "RCS": "Rio Casca",
-        "RNV": "Rio Novo", "RPA": "Rio Paranaíba", "RDS": "Rio Pardo de Minas", "RPC": "Rio Piracicaba", "RPB": "Rio Pomba", "RRE": "Rio Preto",
-        "RIV": "Rio Vermelho", "SBA": "Sabará", "SNS": "Sabinópolis", "SQN": "Sacramento", "SLN": "Salinas", "SBB": "Santa Bárbara", "SLU": "Santa Luzia",
-        "SUI": "Santa Maria do Suaçuí", "SRT": "Santa Rita de Caldas", "SRS": "Santa Rita do Sapucaí", "STV": "Santa Vitória", "SDT": "Santo Antônio do Monte",
-        "SND": "Santos Dumont", "SDG": "São Domingos do Prata", "SFI": "São Francisco", "SGS": "São Gonçalo do Sapucaí", "SGT": "São Gotardo",
-        "SJT": "São João da Ponte", "SOE": "São João del-Rei", "SSK": "São João do Paraíso", "SEG": "São João Evangelista", "SJN": "São João Nepomuceno",
-        "SAL": "São Lourenço", "SRW": "São Romão", "SQS": "São Roque de Minas", "SSP": "São Sebastião do Paraíso", "SDF": "Senador Firmino", "SER": "Serro",
-        "SLA": "Sete Lagoas", "SLP": "Silvianópolis", "TOE": "Taiobeiras", "TRM": "Tarumirim", "TXS": "Teixeiras", "TOT": "Teófilo Otôni", "TTO": "Timóteo",
-        "TRZ": "Tiros", "TOS": "Tombos", "TCS": "Três Corações", "TMS": "Três Marias", "TSP": "Três Pontas", "TPC": "Tupaciguara", "TUR": "Turmalina",
-        "UBA": "Ubá", "URA": "Uberaba", "ULA": "Uberlândia", "UNI": "Unaí", "VGA": "Varginha", "VZP": "Várzea da Palma", "VZE": "Vazante",
+        "AET": "ABAETÉ", "ABN": "ABRE-CAMPO", "ACN": "AÇUCENA", "AGF": "ÁGUAS FORMOSAS", "AOR": "AIMORÉS", "AUD": "AIURUOCA", 
+        "API": "ALÉM PARAÍBA", "AFN": "ALFENAS", "AMN": "ALMENARA", "ALS": "ALPINÓPOLIS", "ADC": "ALTO RIO DOCE", "ALL": "ALVINÓPOLIS", 
+        "ANA": "ANDRADAS", "ADL": "ANDRELÂNDIA", "AUI": "ARAÇUAÍ", "ARI": "ARAGUARI", "AXA": "ARAXÁ", "ACS": "ARCOS", "ADO": "AREADO", 
+        "AYN": "ARINOS", "BAD": "BAEPENDI", "BBI": "BAMBUÍ", "BCS": "BARÃO DE COCAIS", "BCA": "BARBACENA", "BSO": "BARROSO", 
+        "BHE": "BELO HORIZONTE", "BLL": "BELO VALE", "BET": "BETIM", "BIS": "BICAS", "BOE": "BOA ESPERANÇA", "BCV": "BOCAIÚVA", 
+        "BDP": "BOM DESPACHO", "BMS": "BOM SUCESSO", "BFM": "BONFIM", "BFS": "BONFINÓPOLIS DE MINAS", "BOM": "BORDA DA MATA", 
+        "BHS": "BOTELHOS", "BMN": "BRASÍLIA DE MINAS", "BPS": "BRAZÓPOLIS", "BMO": "BRUMADINHO", "BBD": "BUENO BRANDÃO", "BUS": "BUENÓPOLIS", 
+        "BII": "BURITIS", "CBV": "CABO VERDE", "CHS": "CACHOEIRA DE MINAS", "CET": "CAETÉ", "CAD": "CALDAS", "CDU": "CAMANDUCAIA", 
+        "CBI": "CAMBUÍ", "CAQ": "CAMBUQUIRA", "CPH": "CAMPANHA", "CST": "CAMPESTRE", "CVE": "CAMPINA VERDE", "CPO": "Campo Belo", 
+        "CMT": "CAMPOS ALTOS", "CPG": "CAMPOS GERAIS", "COI": "CANÁPOLIS", "CWA": "CANDEIAS", "CLH": "CAPELINHA", "CNS": "CAPINÓPOLIS", 
+        "CRD": "CARANDAÍ", "CRL": "CARANGOLA", "CGA": "CARATINGA", "CCH": "CARLOS CHAGAS", "COM": "CARMO DA MATA", "CAE": "CARMO DE MINAS", 
+        "CCU": "CARMO DO CAJURU", "CMI": "CARMO DO PARANAÍBA", "CRC": "CARMO DO RIO CLARO", "CRM": "CARMÓPOLIS DE MINAS", "CSA": "CÁSSIA", 
+        "CGS": "CATAGUASES", "CAX": "CAXAMBU", "CLU": "CLÁUDIO", "CLS": "CONCEIÇÃO DAS ALAGOAS", "CMD": "CONCEIÇÃO DO MATO DENTRO", 
+        "CVR": "CONCEIÇÃO DO RIO VERDE", "CNG": "CONGONHAS", "CQT": "CONQUISTA", "CNL": "CONSELHEIRO LAFAIETE", "CSN": "CONSELHEIRO PENA", 
+        "CEM": "CONTAGEM", "COJ": "CORAÇÃO DE JESUS", "CIT": "CORINTO", "CEL": "COROMANDEL", "CRF": "CORONEL FABRICIANO", "CSI": "CRISTINA", 
+        "CZL": "CRUZÍLIA", "CUV": "CURVELO", "DMT": "DIAMANTINA", "DVO": "DIVINO", "DVL": "DIVINÓPOLIS", "DDI": "DORES DO INDAIÁ", 
+        "ELM": "ELÓI MENDES", "ERM": "ENTRE-RIOS DE MINAS", "ERV": "ERVÁLIA", "EES": "ESMERALDAS", "EEP": "ESPERA FELIZ", "EPS": "ESPINOSA", 
+        "EEL": "ESTRELA DO SUL", "EOS": "EUGENÓPOLIS", "EXM": "EXTREMA", "FES": "FERROS", "FMA": "FORMIGA", "FCS": "FRANCISCO SÁ", 
+        "FRU": "FRUTAL", "GLL": "GALILÉIA", "GVS": "GOVERNADOR VALADARES", "GGL": "GRÃO-MOGOL", "GHE": "GUANHÃES", "GUE": "GUAPÉ", 
+        "GSA": "GUARANÉSIA", "GNI": "GUARANI", "GPE": "GUAXUPÉ", "IBY": "IBIÁ", "III": "IBIRACI", "IIB": "IBIRITÉ", "IRP": "IGARAPÉ", 
+        "IUM": "IGUATAMA", "INP": "INHAPIM", "YAN": "IPANEMA", "IIG": "IPATINGA", "IBA": "ITABIRA", "IRO": "ITABIRITO", "IGR": "ITAGUARA", 
+        "IJA": "ITAJUBÁ", "IMR": "ITAMARANDIBA", "ITC": "ITAMBACURI", "IOG": "ITAMOJI", "IMO": "ITAMONTE", "ITD": "ITANHANDU", "INH": "ITANHOMI", 
+        "IGY": "ITAPAJIPE", "IPC": "ITAPECERICA", "IAN": "ITAÚNA", "IUA": "ITUIUTABA", "IYM": "ITUMIRIM", "ITM": "ITURAMA", "JBU": "JABOTICATUBAS", 
+        "JNT": "JACINTO", "JCU": "JACUÍ", "JTA": "JACUTINGA", "JAB": "JAÍBA", "JUA": "JANAÚBA", "JNU": "JANUÁRIA", "JQI": "JEQUERI", 
+        "JQT": "JEQUITINHONHA", "JML": "João Monlevade", "JPI": "João Pinheiro", "JTB": "JUATUBA", "JFA": "Juiz de Fora", "LPT": "Lagoa da Prata", 
+        "LGT": "Lagoa Santa", "LJA": "Lajinha", "LAM": "Lambari", "LAV": "Lavras", "LPD": "Leopoldina", "LAD": "Lima Duarte", "LUZ": "LUZ", 
+        "MCD": "Machado", "MCH": "Malacacheta", "MAG": "Manga", "MNC": "Manhuaçu", "MIM": "Manhumirim", "MNN": "Mantena", "MEH": "Mar de Espanha", 
+        "MRN": "Mariana", "MHC": "Martinho Campos", "MAL": "Mateus Leme", "MBB": "Matias Barbosa", "MTZ": "Matozinhos", "MDA": "Medina", 
+        "MEE": "Mercês", "MQI": "Mesquita", "MNV": "Minas Novas", "MDO": "Miradouro", "MII": "Miraí", "MTV": "Montalvânia", "MAM": "Monte Alegre de Minas", 
+        "MZL": "Monte Azul", "MBE": "Monte Belo", "MOO": "Monte Carmelo", "MSM": "Monte Santo de Minas", "MSI": "Monte Sião", "MCL": "Montes Claros", 
+        "MNM": "Morada Nova de Minas", "MRE": "Muriaé", "MTM": "Mutum", "MUZ": "Muzambinho", "NNE": "Nanuque", "NAR": "Natércia", "NPO": "Nepomuceno", 
+        "NER": "Nova Era", "NLA": "Nova Lima", "NVN": "Nova Ponte", "NES": "Nova Resende", "NVS": "Nova Serrana", "NZO": "Novo Cruzeiro", 
+        "OLV": "Oliveira", "OUO": "Ouro Branco", "OUF": "Ouro Fino", "ORP": "Ouro Preto", "PAL": "Palma", "PRS": "Pará de Minas", "PTU": "Paracatu", 
+        "PGC": "Paraguaçu", "PSP": "Paraisópolis", "PEB": "Paraopeba", "PQO": "Passa-Quatro", "PST": "Passa-Tempo", "PSS": "Passos", "PMS": "Patos de Minas", 
+        "PTC": "Patrocínio", "PNH": "Peçanha", "PZL": "Pedra Azul", "PDV": "Pedralva", "PLO": "Pedro Leopoldo", "PEZ": "Perdizes", "PDS": "Perdões", 
+        "PRG": "Piranga", "PPN": "Pirapetinga", "PRR": "Pirapora", "PTI": "Pitangui", "PIU": "Piumhi", "POF": "Poço Fundo", "PCS": "Poços de Caldas", 
+        "PPE": "Pompéu", "PNV": "Ponte Nova", "PTH": "Porteirinha", "PSO": "Pouso Alegre", "PAD": "Prados", "PRT": "Prata", "PRO": "Pratápolis", 
+        "PEE": "Presidente Olegário", "RSS": "Raul Soares", "RED": "Resende Costa", "RSP": "Resplendor", "RNS": "Ribeirão das Neves", "RCS": "Rio Casca", 
+        "RNV": "Rio Novo", "RPA": "Rio Paranaíba", "RDS": "Rio Pardo de Minas", "RPC": "Rio Piracicaba", "RPB": "Rio Pomba", "RRE": "Rio Preto", 
+        "RIV": "Rio Vermelho", "SBA": "Sabará", "SNS": "Sabinópolis", "SQN": "Sacramento", "SLN": "Salinas", "SBB": "Santa Bárbara", "SLU": "Santa Luzia", 
+        "SUI": "Santa Maria do Suaçuí", "SRT": "Santa Rita de Caldas", "SRS": "Santa Rita do Sapucaí", "STV": "Santa Vitória", "SDT": "Santo Antônio do Monte", 
+        "SND": "Santos Dumont", "SDG": "São Domingos do Prata", "SFI": "São Francisco", "SGS": "São Gonçalo do Sapucaí", "SGT": "São Gotardo", 
+        "SJT": "São João da Ponte", "SOE": "São João del-Rei", "SSK": "São João do Paraíso", "SEG": "São João Evangelista", "SJN": "São João Nepomuceno", 
+        "SAL": "São Lourenço", "SRW": "São Romão", "SQS": "São Roque de Minas", "SSP": "São Sebastião do Paraíso", "SDF": "Senador Firmino", "SER": "Serro", 
+        "SLA": "Sete Lagoas", "SLP": "Silvianópolis", "TOE": "Taiobeiras", "TRM": "Tarumirim", "TXS": "Teixeiras", "TOT": "Teófilo Otôni", "TTO": "Timóteo", 
+        "TRZ": "Tiros", "TOS": "Tombos", "TCS": "Três Corações", "TMS": "Três Marias", "TSP": "Três Pontas", "TPC": "Tupaciguara", "TUR": "Turmalina", 
+        "UBA": "Ubá", "URA": "Uberaba", "ULA": "Uberlândia", "UNI": "Unaí", "VGA": "Varginha", "VZP": "Várzea da Palma", "VZE": "Vazante", 
         "VPN": "Vespasiano", "VCS": "Viçosa", "VGP": "Virginópolis", "VRB": "Visconde do Rio Branco"
     };
 
@@ -103,33 +111,31 @@
             contain: content;
         }
 
-        /* --- CORREÇÃO ESTRUTURAL DA TABELA --- */
+        /* --- CORREÇÃO ESTRUTURAL DA TABELA PRINCIPAL --- */
         #tabelaLocalizadores {
             width: 100% !important;
             table-layout: auto !important;
             border-collapse: collapse !important;
         }
 
-        #tabelaLocalizadores th, #tabelaLocalizadores td {
+        /* Proteção para afetar Apenas as células principais e não as tabelas internas (de ordenação) */
+        #tabelaLocalizadores > tbody > tr > th, #tabelaLocalizadores > tbody > tr > td {
             padding: 5px 4px !important;
             vertical-align: middle !important;
         }
 
         /* 1. COLUNAS COMPACTAS (Datas, Números, Inclusão) */
-        /* Col 2: N. Processo */
-        #tabelaLocalizadores th:nth-child(2), #tabelaLocalizadores td:nth-child(2) {
+        #tabelaLocalizadores > tbody > tr > th:nth-child(2), #tabelaLocalizadores > tbody > tr > td:nth-child(2) {
             width: 1px !important;
             white-space: nowrap !important;
         }
 
-        /* Col 3: Data Autuação */
-        #tabelaLocalizadores th:nth-child(3), #tabelaLocalizadores td:nth-child(3) {
+        #tabelaLocalizadores > tbody > tr > th:nth-child(3), #tabelaLocalizadores > tbody > tr > td:nth-child(3) {
             width: 1px !important;
             white-space: nowrap !important;
         }
 
-        /* Col Final: Inclusão no Localizador */
-        #tabelaLocalizadores th:last-child, #tabelaLocalizadores td:last-child {
+        #tabelaLocalizadores > tbody > tr > th:last-child, #tabelaLocalizadores > tbody > tr > td:last-child {
             width: 1px !important;
             white-space: nowrap !important;
         }
@@ -154,15 +160,13 @@
         }
 
         /* 2. COLUNAS DE TEXTO LONGO (Localizadores, Último Evento) */
-        /* Col 7 (aprox): Localizadores */
-        #tabelaLocalizadores th:nth-child(7), #tabelaLocalizadores td:nth-child(7) {
+        #tabelaLocalizadores > tbody > tr > th:nth-child(7), #tabelaLocalizadores > tbody > tr > td:nth-child(7) {
             white-space: normal !important;
             max-width: 220px !important;     /* Largura fixa para forçar a quebra vertical */
             word-wrap: break-word !important;
         }
 
-        /* Penúltima Coluna: Último Evento */
-        #tabelaLocalizadores th:nth-last-child(2), #tabelaLocalizadores td:nth-last-child(2) {
+        #tabelaLocalizadores > tbody > tr > th:nth-last-child(2), #tabelaLocalizadores > tbody > tr > td:nth-last-child(2) {
             white-space: normal !important;
             max-width: 250px !important;
             word-wrap: break-word !important;
@@ -183,7 +187,6 @@
             background-color: #f0f0f2 !important;
         }
         .th-nucleo-40:hover, .th-nucleo-origem:hover { background-color: #e2e2e5 !important; }
-        .sort-icon { display: inline-block; width: 12px; margin-left: 5px; font-size: 9pt; color: #555; }
 
         .eproc-spinner {
             border: 2px solid #f3f3f3; border-top: 2px solid #0081c2;
@@ -208,8 +211,8 @@
         }
 
         .eproc-badge-novo {
-            background-color: #f39c12; color: #fff; padding: 4px 10px; border-radius: 12px;
-            font-size: 11px; font-weight: bold; border: 1px solid #e67e22;
+            background-color: #f39c12; color: #fff; padding: 4px 10px; border-radius: 12px; 
+            font-size: 11px; font-weight: bold; border: 1px solid #e67e22; 
             box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: inline-block; vertical-align: middle; text-transform: none;
         }
 
@@ -314,7 +317,7 @@
         .eproc-radio-group { display: flex; align-items: center; gap: 15px; margin-right: 15px; border-right: 1px solid #eee; padding-right: 15px; height: 100%; }
         .eproc-radio-label { font-size: 12px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 4px; margin: 0 !important; padding: 0 !important; line-height: 1; }
         .eproc-radio-label input[type="radio"] { margin: 0 !important; margin-top: 1px !important; cursor: pointer; }
-
+        
         .eproc-btn-magic { background-image: linear-gradient(to bottom, #f39c12 0, #e67e22 100%); color: #fff; font-weight: bold; border-color: #d35400; }
         .eproc-btn-magic:hover { background-image: none; background-color: #e67e22; color: #fff; }
         .eproc-dist-item { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-bottom: 10px; background-color: #fcfcfc; }
@@ -675,7 +678,7 @@
     scheduleKeepAlive();
 
     // ===========================================================================================
-    // PARTE 3: TABELA E CHUNK PROCESSING
+    // PARTE 3: TABELA E CHUNK PROCESSING (COM INDICADOR NATIVO E CORREÇÃO DE CABEÇALHO)
     // ===========================================================================================
     let ordemData = 'desc'; let ordemOrigem = 'asc';
     function obterDataSegura(str) {
@@ -684,14 +687,29 @@
     }
 
     function ordenarPor(colClass, ordemVar) {
-        const tabela = document.querySelector('#tabelaLocalizadores') || document.querySelector('.infraTable');
+        const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return;
         const th = tabela.querySelector(colClass === '.eproc-col-data-nucleo' ? '.th-nucleo-40' : '.th-nucleo-origem');
-        if (!th) return; const parent = th.closest('tbody') || tabela;
-        const isData = colClass === '.eproc-col-data-nucleo';
+        if (!th) return; 
+        const parent = th.closest('tbody') || tabela.querySelector('tbody') || tabela; 
+
+        document.querySelectorAll('.th-nucleo-40 .sort-up, .th-nucleo-origem .sort-up').forEach(img => img.src = 'infra_css/imagens/seta_acima.gif');
+        document.querySelectorAll('.th-nucleo-40 .sort-down, .th-nucleo-origem .sort-down').forEach(img => img.src = 'infra_css/imagens/seta_abaixo.gif');
+
         window[ordemVar] = (window[ordemVar] === 'asc') ? 'desc' : 'asc';
-        th.querySelector('.sort-icon').textContent = window[ordemVar] === 'asc' ? '▲' : '▼';
-        const rows = Array.from(parent.children).filter(tr => tr.tagName === 'TR' && tr.querySelectorAll('td').length > 0 && tr.querySelector(colClass));
+        const imgUp = th.querySelector('.sort-up');
+        const imgDown = th.querySelector('.sort-down');
+
+        if (window[ordemVar] === 'asc') {
+            if(imgUp) imgUp.src = 'infra_css/imagens/seta_acima_selecionada.gif';
+        } else {
+            if(imgDown) imgDown.src = 'infra_css/imagens/seta_abaixo_selecionada.gif';
+        }
+
+        const isData = colClass === '.eproc-col-data-nucleo';
+        
+        const rows = getLinhasProcessos().filter(tr => tr.querySelector(colClass));
+        
         rows.sort((a, b) => {
             const vA = a.cells[th.cellIndex]?.innerText.trim() || ""; const vB = b.cells[th.cellIndex]?.innerText.trim() || "";
             if (isData) {
@@ -732,27 +750,53 @@
         if (idxEvento === -1) return;
 
         if (!header.querySelector('.th-nucleo-40')) {
-            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-40'; th.innerHTML = `Recebido em <span class="sort-icon">⇅</span>`;
+            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-40'; th.style.padding = '0';
+            th.innerHTML = `
+                <table class="infraTableOrdenacao" style="width:100%; cursor:pointer;">
+                    <tbody>
+                        <tr class="infraTrOrdenacao">
+                            <td width="1%" class="infraTdSetaOrdenacao"><img src="infra_css/imagens/seta_acima.gif" class="infraImgOrdenacao sort-up"></td>
+                            <td rowspan="2" valign="center" class="infraTdRotuloOrdenacao" style="text-align:center;">Recebido em</td>
+                        </tr>
+                        <tr class="infraTrOrdenacao">
+                            <td class="infraTdSetaOrdenacao"><img src="infra_css/imagens/seta_abaixo.gif" class="infraImgOrdenacao sort-down"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
             header.insertBefore(th, header.cells[idxEvento]); th.onclick = () => ordenarPor('.eproc-col-data-nucleo', 'ordemData');
         }
         if (!header.querySelector('.th-nucleo-origem')) {
-            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-origem'; th.innerHTML = `Origem <span class="sort-icon">⇅</span>`;
+            const th = document.createElement('th'); th.className = 'infraTh th-nucleo-origem'; th.style.padding = '0';
+            th.innerHTML = `
+                <table class="infraTableOrdenacao" style="width:100%; cursor:pointer;">
+                    <tbody>
+                        <tr class="infraTrOrdenacao">
+                            <td width="1%" class="infraTdSetaOrdenacao"><img src="infra_css/imagens/seta_acima.gif" class="infraImgOrdenacao sort-up"></td>
+                            <td rowspan="2" valign="center" class="infraTdRotuloOrdenacao" style="text-align:center;">Origem</td>
+                        </tr>
+                        <tr class="infraTrOrdenacao">
+                            <td class="infraTdSetaOrdenacao"><img src="infra_css/imagens/seta_abaixo.gif" class="infraImgOrdenacao sort-down"></td>
+                        </tr>
+                    </tbody>
+                </table>
+            `;
             const thRec = header.querySelector('.th-nucleo-40');
             if(thRec && thRec.nextSibling) header.insertBefore(th, thRec.nextSibling); else header.appendChild(th);
             th.onclick = () => ordenarPor('.eproc-col-origem-nucleo', 'ordemOrigem');
         }
 
         const colIdxDate = header.querySelector('.th-nucleo-40').cellIndex;
-        isScanning = true; const linhas = Array.from(tabela.querySelectorAll('tr[class^="infraTr"]'));
+        isScanning = true; const linhas = getLinhasProcessos();
         let index = 0; const chunkSize = 20;
 
         function processarChunk() {
             const fim = Math.min(index + chunkSize, linhas.length);
             const keysToWarm =[];
             for (let i = index; i < fim; i++) {
-                const tr = linhas[i]; if (tr.querySelector('th')) continue;
+                const tr = linhas[i]; 
                 if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
-
+                
                 const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
                 if (link) {
                     const numProc = link.innerText.trim().replace(/\D/g, '');
@@ -762,7 +806,7 @@
 
             CacheManager.warmupChunk(keysToWarm).then(() => {
                 for (let i = index; i < fim; i++) {
-                    const tr = linhas[i]; if (tr.querySelector('th')) continue;
+                    const tr = linhas[i]; 
                     verificarParalisacao(tr, idxEvento);
 
                     let tdDate = tr.querySelector('.eproc-col-data-nucleo');
@@ -829,9 +873,9 @@
                 <button id="btn-rel-digito" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Relatório Por Dígito</button>
                 <button id="btn-rel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
             document.body.appendChild(overlay);
-
+            
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
-
+            
             const getFiltrados = () => {
                 let paralisados = Array.from(document.querySelectorAll('tr.tr-paralisado'));
                 if (totalNovos > 0 && document.querySelector('input[name="eproc-rel-scope"]:checked')?.value === 'novos') {
@@ -839,14 +883,14 @@
                 }
                 return paralisados;
             };
-
+            
             document.getElementById('btn-rel-cancel').onclick = fechar;
-
+            
             document.getElementById('btn-rel-geral').onclick = () => {
-                const paralisados = getFiltrados();
-                fechar();
+                const paralisados = getFiltrados(); 
+                fechar(); 
                 if (!paralisados.length) return;
-
+                
                 let html = '<table border="1"><thead><tr><th>Processo</th><th>Último Evento</th></tr></thead><tbody>'; let texto = 'Processo\tÚltimo Evento\n';
                 paralisados.forEach(tr => {
                     const l = tr.querySelector('a[href*="acao=processo_selecionar"]'); const c = tr.cells[idxEvento];
@@ -855,12 +899,12 @@
                 });
                 html += '</tbody></table>'; copiarParaClipboard(html, texto);
             };
-
+            
             document.getElementById('btn-rel-digito').onclick = () => {
-                const paralisados = getFiltrados();
-                fechar();
+                const paralisados = getFiltrados(); 
+                fechar(); 
                 if (!paralisados.length) return;
-
+                
                 const buckets = Array.from({length: 10}, () =>[]);
                 paralisados.forEach(tr => {
                     const l = tr.querySelector('a[href*="acao=processo_selecionar"]');
@@ -910,7 +954,7 @@
     // ===========================================================================================
     // PARTE 4: NAVEGAÇÃO FLUTUANTE DE SELEÇÃO
     // ===========================================================================================
-
+    
     let currentNavIndex = -1;
 
     function updateNavVisibility() {
@@ -921,13 +965,13 @@
                 nav.style.display = 'flex';
             } else {
                 nav.style.display = 'none';
-                currentNavIndex = -1;
+                currentNavIndex = -1; 
             }
         }
     }
 
     function navigateSelection(direction) {
-        const checkboxes = Array.from(document.querySelectorAll('tr[class^="infraTr"] input[type="checkbox"]:checked'));
+        const checkboxes = getLinhasProcessos().map(tr => tr.querySelector('input[type="checkbox"]:checked')).filter(Boolean);
         if (checkboxes.length === 0) return;
 
         if (direction === 'down') {
@@ -949,22 +993,21 @@
             tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
             const originalBg = tr.style.backgroundColor;
             tr.style.transition = 'background-color 0.3s';
-            tr.style.backgroundColor = '#ffeeba';
+            tr.style.backgroundColor = '#ffeeba'; 
             setTimeout(() => {
                 tr.style.backgroundColor = originalBg;
             }, 800);
         }
     }
 
-
     // ===========================================================================================
     // PARTE 5: ASSISTENTES DE DISTRIBUIÇÃO E LÓGICA DE INTERFACE
     // ===========================================================================================
-
+    
     function parseOrigem(textoOrigem) {
         if (!textoOrigem) return null;
         let comarca = "";
-        let vara = "ÚNICA";
+        let vara = "ÚNICA"; 
 
         const matchSigla = textoOrigem.match(/\b([A-Z]{3})\b/);
         if (matchSigla && COMARCAS_MAP[matchSigla[1]]) {
@@ -978,7 +1021,7 @@
         const cleanText = textoOrigem.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         if (!cleanText.includes("UNICA") && !cleanText.includes("ÚNICA")) {
             const matchVara = cleanText.match(/(\d+)[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
-            if (matchVara) vara = matchVara[1] + "VC";
+            if (matchVara) vara = matchVara[1] + "VC"; 
         }
 
         if (comarca) return { comarca, vara };
@@ -989,14 +1032,14 @@
         if (!parsedOrigem) return null;
         const options = Array.from(document.querySelectorAll('#selNovoLocalizador option'));
         const searchComarca = parsedOrigem.comarca.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-
+        
         for (let opt of options) {
             const txt = opt.text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
             if (txt.includes("NB/JC") && txt.includes(searchComarca)) {
                 if (parsedOrigem.vara === "ÚNICA") {
                     if (!txt.match(/\d+VC/)) return opt;
                 } else {
-                    if (txt.includes(parsedOrigem.vara)) return opt;
+                    if (txt.includes(parsedOrigem.vara)) return opt; 
                 }
             }
         }
@@ -1010,22 +1053,20 @@
             if (legendLoc) legendLoc.click();
         }
 
-        const linhas = document.querySelectorAll('tr[class^="infraTr"]');
-        const grupos = {};
+        const linhas = getLinhasProcessos();
+        const grupos = {}; 
         let totalValidos = 0;
 
         linhas.forEach(linha => {
-            if (linha.querySelector('th')) return;
-
             const tdOrigem = linha.querySelector('.eproc-col-origem-nucleo');
             const tds = Array.from(linha.querySelectorAll('td'));
-            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6];
-
+            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6]; 
+            
             if (!tdOrigem || !tdLocalizadores) return;
-
+            
             const textoOrigem = tdOrigem.innerText.trim();
-            const textoLocsAtual = tdLocalizadores.innerText.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
+            const textoLocsAtual = tdLocalizadores.innerText.toUpperCase().replace(/[^A-Z0-9]/g, ''); 
+            
             if(textoOrigem === "..." || textoOrigem === "-") return;
 
             const parsed = parseOrigem(textoOrigem);
@@ -1033,7 +1074,7 @@
 
             if (optTarget && optTarget.value !== "null") {
                 const targetNameClean = optTarget.text.split('-')[1]?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || optTarget.text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
+                
                 if (!textoLocsAtual.includes(targetNameClean)) {
                     const locNameDisplay = optTarget.text;
                     if (!grupos[optTarget.value]) grupos[optTarget.value] = { nome: locNameDisplay, linhas:[] };
@@ -1065,11 +1106,10 @@
     }
 
     function abrirAssistenteDistribuicaoDigitos() {
-        const linhas = document.querySelectorAll('tr[class^="infraTr"]');
-        const processosPendentes =[];
+        const linhas = getLinhasProcessos();
+        const processosPendentes =[]; 
 
         linhas.forEach(linha => {
-            if (linha.querySelector('th')) return;
             const linkProc = linha.querySelector('a[href*="acao=processo_selecionar"]');
             if (!linkProc) return;
             const matchProc = linkProc.innerText.match(/(\d)-/);
@@ -1077,12 +1117,12 @@
             const digitoProcesso = matchProc[1];
 
             const tds = Array.from(linha.querySelectorAll('td'));
-            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6];
+            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6]; 
             if (!tdLocalizadores) return;
-
+            
             const locsText = tdLocalizadores.innerText.toUpperCase();
             const regexLocCorreto = new RegExp(`D[IÍ]GITO\\s*${digitoProcesso}`, 'i');
-
+            
             if (!regexLocCorreto.test(locsText)) {
                 const optTarget = findLocalizadorDigito(digitoProcesso);
                 if (optTarget && optTarget.value !== "null") {
@@ -1107,7 +1147,7 @@
     function mostrarSelecaoDeDigito(processosPendentes) {
         const overlay = document.createElement('div');
         overlay.className = 'eproc-modal-overlay';
-
+        
         let botoesDigitos = '';
         for (let i = 0; i <= 9; i++) {
             const count = processosPendentes.filter(p => p.digito === String(i)).length;
@@ -1120,7 +1160,7 @@
         overlay.innerHTML = `
             <div class="eproc-modal-content" style="width: 320px; text-align:center;">
                 <div class="eproc-modal-title">🪄 Distribuição por Dígitos</div>
-                <p style="font-size:12px; color:#666; margin-bottom:15px;">Selecione o dígito</p>
+                <p style="font-size:12px; color:#666; margin-bottom:15px;">Selecione o dígito que deseja distribuir:</p>
                 <div style="display:flex; flex-wrap:wrap; justify-content:center; margin-bottom:15px;">
                     ${botoesDigitos}
                 </div>
@@ -1131,9 +1171,9 @@
 
         window.processarDistribuicaoDigito = function(filtroDigito) {
             document.body.removeChild(overlay);
-
-            const filtrados = filtroDigito === 'todos'
-                ? processosPendentes
+            
+            const filtrados = filtroDigito === 'todos' 
+                ? processosPendentes 
                 : processosPendentes.filter(p => p.digito === filtroDigito);
 
             if (filtrados.length === 0) {
@@ -1143,7 +1183,7 @@
 
             const grupos = {};
             filtrados.forEach(p => {
-                if (!grupos[p.optTarget.value]) grupos[p.optTarget.value] = { nome: p.nomeTarget, linhas: [] };
+                if (!grupos[p.optTarget.value]) grupos[p.optTarget.value] = { nome: p.nomeTarget, linhas:[] };
                 grupos[p.optTarget.value].linhas.push(p.linha);
             });
 
@@ -1161,7 +1201,7 @@
 
                 if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
                 else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
-
+                
                 document.querySelectorAll('tr[style*="background-color"]').forEach(tr => { tr.style.backgroundColor=''; tr.style.borderLeft=''; });
 
                 requestAnimationFrame(() => {
@@ -1169,16 +1209,16 @@
                     linhasAlvo.forEach(tr => {
                         const chk = tr.querySelector('input[type="checkbox"]');
                         if (chk && !chk.checked) {
-                            chk.click();
+                            chk.click(); 
                             tr.style.backgroundColor = '#eef8fa';
                             tr.style.borderLeft = '4px solid #0081c2';
                             count++;
                         }
                     });
-
+                    
                     document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
                     updateNavVisibility();
-
+                    
                     setTimeout(() => {
                         const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
                         if (btnDesmarcar) {
@@ -1219,7 +1259,7 @@
 
         const overlay = document.createElement('div');
         overlay.className = 'eproc-modal-overlay';
-
+        
         let htmlBotoes = '';
         Object.keys(grupos).forEach(val => {
             const grp = grupos[val];
@@ -1248,7 +1288,7 @@
 
             if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
             else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
-
+            
             document.querySelectorAll('tr[style*="background-color"]').forEach(tr => { tr.style.backgroundColor=''; tr.style.borderLeft=''; });
 
             requestAnimationFrame(() => {
@@ -1256,16 +1296,16 @@
                 linhasAlvo.forEach(tr => {
                     const chk = tr.querySelector('input[type="checkbox"]');
                     if (chk && !chk.checked) {
-                        chk.click();
+                        chk.click(); 
                         tr.style.backgroundColor = '#eef8fa';
                         tr.style.borderLeft = '4px solid #0081c2';
                         count++;
                     }
                 });
-
+                
                 document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
                 updateNavVisibility();
-
+                
                 setTimeout(() => {
                     const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
                     if (btnDesmarcar) {
@@ -1438,11 +1478,9 @@
 
         function verificarPendenciasReais() {
             let pendentes = 0;
-            const linhas = document.querySelectorAll('tr[class^="infraTr"]');
+            const linhas = getLinhasProcessos();
 
             linhas.forEach(tr => {
-                if (tr.querySelector('th')) return;
-
                 const temCheckbox = tr.querySelector('input[type="checkbox"]');
                 const temLink = tr.querySelector('a[href*="acao=processo_selecionar"]');
                 if (!temCheckbox && !temLink) return;
@@ -1504,13 +1542,13 @@
             }));
 
             const updates =[];
-            const linhas = document.querySelectorAll('tr[class^="infraTr"]');
+            const linhas = getLinhasProcessos();
 
             let count = 0;
 
             linhas.forEach(linha => {
                 const chk = linha.querySelector('input[type="checkbox"]');
-                if (!chk || chk.disabled) return;
+                if (!chk || chk.disabled) return; 
 
                 if (!validarIntervaloData(linha, dtInicio, dtFim)) {
                      updates.push({ tr: linha, chk: chk, select: false });
@@ -1677,12 +1715,12 @@
 
                 <div class="eproc-row" style="justify-content: space-between;">
                    <div style="display:flex; gap:10px; align-items:center;">
-
+                        
                         <button id="eproc-dist-magica" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Vara de origem" style="margin-right: 5px;">
                             <svg viewBox="0 0 24 24" width="18" height="18"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.41l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.41zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>
                         </button>
-
-                        <button id="eproc-dist-digito" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Dígito" style="margin-right: 15px;">
+                        
+                        <button id="eproc-dist-digito" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente de Dígitos" style="margin-right: 15px;">
                             <svg viewBox="0 0 24 24" width="18" height="18">
                                 <text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle" font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="currentColor">#</text>
                             </svg>
@@ -1797,13 +1835,12 @@
 
             document.getElementById('eproc-rel-tramitacao-btn').onclick = (e) => {
                 e.preventDefault();
-                const linhas = document.querySelectorAll('tr[class^="infraTr"]');
+                const linhas = getLinhasProcessos();
                 const dados =[];
                 const hoje = new Date();
                 hoje.setHours(0,0,0,0);
 
                 linhas.forEach(tr => {
-                    if (tr.querySelector('th')) return;
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     const tdData = tr.querySelector('.eproc-col-data-nucleo');
                     if (linkProc && tdData) {
@@ -1926,7 +1963,7 @@
                 protegerServidorEproc();
                 melhorarGerenciarLocalizadores(); // Intercepta "Alterar Localizador" para permitir apenas remoções
                 setTimeout(iniciarProcessamentoDados, 100); // Adia o peso do processamento de rede
-
+                
                 // Mutações para acender as setas de navegação quando clicar nativamente também
                 const tab = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
                 if (tab) {
