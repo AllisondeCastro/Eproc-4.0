@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.2
+// @version      45.6
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -19,245 +19,131 @@
     // CONFIGURAÇÕES & CONSTANTES
     // ===========================================================================================
     const TEXTO_ALVO_1 = "Remetidos os Autos (outros motivos) para Núcleo 4.0";
-    const TEXTO_ALVO_2 = "Núcleo 4.0"; // Fallback genérico
+    const TEXTO_ALVO_2 = "Núcleo 4.0";
 
-    // CONFIGURAÇÕES DO INDEXEDDB (Cache de Processos e Controle de Paralisados)
     const DB_NAME = "EprocCacheDB";
-    const DB_VERSION = 2; 
+    const DB_VERSION = 2;
     const STORE_NAME = "processos";
-    const STORE_PARALISADOS = "paralisados_vistos"; 
-    const EXPIRATION_DAYS = 90;
+    const STORE_PARALISADOS = "paralisados_vistos";
+    const EXPIRATION_DAYS = 150;
 
-    // Chaves do LocalStorage (Preferências Leves)
     const LS_KEY_BOTOES = "eproc_botoes_personalizados";
     const LS_KEY_ORDEM = "eproc_ordem_botoes_v17";
     const LS_KEY_PAGINACAO = "eproc_paginacao_pref";
 
-    // ARQUITETURA: Token Bucket
-    const BUCKET_CAPACITY = 10;
-    const TOKENS_PER_SECOND = 4;
-    const MAX_CONCURRENCY = 5;
+    const BUCKET_CAPACITY = 20;
+    const TOKENS_PER_SECOND = 5;
+    const MAX_CONCURRENCY = 20;
 
-    // Memória da Sessão Atual para "Novos Paralisados"
     const paralisadosNovosSessao = new Set();
+    const regexData = /^\d{2}\/\d{2}\/\d{4}$/; // Expressão regular em cache para otimização
 
     // UTILITÁRIO GLOBAL: FILTRO SEGURO DE LINHAS DE DADOS
     function getLinhasProcessos() {
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return[];
-        // Filtra estritamente as linhas da tabela principal, ignorando cabeçalhos e tabelas aninhadas
         return Array.from(tabela.rows).filter(tr => !tr.querySelector('th') && tr.closest('table') === tabela);
     }
 
     // MAPA DE COMARCAS E SIGLAS (DISTRIBUIÇÃO INTELIGENTE)
     const COMARCAS_MAP = {
-        "AET": "ABAETÉ", "ABN": "ABRE-CAMPO", "ACN": "AÇUCENA", "AGF": "ÁGUAS FORMOSAS", "AOR": "AIMORÉS", "AUD": "AIURUOCA", 
-        "API": "ALÉM PARAÍBA", "AFN": "ALFENAS", "AMN": "ALMENARA", "ALS": "ALPINÓPOLIS", "ADC": "ALTO RIO DOCE", "ALL": "ALVINÓPOLIS", 
-        "ANA": "ANDRADAS", "ADL": "ANDRELÂNDIA", "AUI": "ARAÇUAÍ", "ARI": "ARAGUARI", "AXA": "ARAXÁ", "ACS": "ARCOS", "ADO": "AREADO", 
-        "AYN": "ARINOS", "BAD": "BAEPENDI", "BBI": "BAMBUÍ", "BCS": "BARÃO DE COCAIS", "BCA": "BARBACENA", "BSO": "BARROSO", 
-        "BHE": "BELO HORIZONTE", "BLL": "BELO VALE", "BET": "BETIM", "BIS": "BICAS", "BOE": "BOA ESPERANÇA", "BCV": "BOCAIÚVA", 
-        "BDP": "BOM DESPACHO", "BMS": "BOM SUCESSO", "BFM": "BONFIM", "BFS": "BONFINÓPOLIS DE MINAS", "BOM": "BORDA DA MATA", 
-        "BHS": "BOTELHOS", "BMN": "BRASÍLIA DE MINAS", "BPS": "BRAZÓPOLIS", "BMO": "BRUMADINHO", "BBD": "BUENO BRANDÃO", "BUS": "BUENÓPOLIS", 
-        "BII": "BURITIS", "CBV": "CABO VERDE", "CHS": "CACHOEIRA DE MINAS", "CET": "CAETÉ", "CAD": "CALDAS", "CDU": "CAMANDUCAIA", 
-        "CBI": "CAMBUÍ", "CAQ": "CAMBUQUIRA", "CPH": "CAMPANHA", "CST": "CAMPESTRE", "CVE": "CAMPINA VERDE", "CPO": "Campo Belo", 
-        "CMT": "CAMPOS ALTOS", "CPG": "CAMPOS GERAIS", "COI": "CANÁPOLIS", "CWA": "CANDEIAS", "CLH": "CAPELINHA", "CNS": "CAPINÓPOLIS", 
-        "CRD": "CARANDAÍ", "CRL": "CARANGOLA", "CGA": "CARATINGA", "CCH": "CARLOS CHAGAS", "COM": "CARMO DA MATA", "CAE": "CARMO DE MINAS", 
-        "CCU": "CARMO DO CAJURU", "CMI": "CARMO DO PARANAÍBA", "CRC": "CARMO DO RIO CLARO", "CRM": "CARMÓPOLIS DE MINAS", "CSA": "CÁSSIA", 
-        "CGS": "CATAGUASES", "CAX": "CAXAMBU", "CLU": "CLÁUDIO", "CLS": "CONCEIÇÃO DAS ALAGOAS", "CMD": "CONCEIÇÃO DO MATO DENTRO", 
-        "CVR": "CONCEIÇÃO DO RIO VERDE", "CNG": "CONGONHAS", "CQT": "CONQUISTA", "CNL": "CONSELHEIRO LAFAIETE", "CSN": "CONSELHEIRO PENA", 
-        "CEM": "CONTAGEM", "COJ": "CORAÇÃO DE JESUS", "CIT": "CORINTO", "CEL": "COROMANDEL", "CRF": "CORONEL FABRICIANO", "CSI": "CRISTINA", 
-        "CZL": "CRUZÍLIA", "CUV": "CURVELO", "DMT": "DIAMANTINA", "DVO": "DIVINO", "DVL": "DIVINÓPOLIS", "DDI": "DORES DO INDAIÁ", 
-        "ELM": "ELÓI MENDES", "ERM": "ENTRE-RIOS DE MINAS", "ERV": "ERVÁLIA", "EES": "ESMERALDAS", "EEP": "ESPERA FELIZ", "EPS": "ESPINOSA", 
-        "EEL": "ESTRELA DO SUL", "EOS": "EUGENÓPOLIS", "EXM": "EXTREMA", "FES": "FERROS", "FMA": "FORMIGA", "FCS": "FRANCISCO SÁ", 
-        "FRU": "FRUTAL", "GLL": "GALILÉIA", "GVS": "GOVERNADOR VALADARES", "GGL": "GRÃO-MOGOL", "GHE": "GUANHÃES", "GUE": "GUAPÉ", 
-        "GSA": "GUARANÉSIA", "GNI": "GUARANI", "GPE": "GUAXUPÉ", "IBY": "IBIÁ", "III": "IBIRACI", "IIB": "IBIRITÉ", "IRP": "IGARAPÉ", 
-        "IUM": "IGUATAMA", "INP": "INHAPIM", "YAN": "IPANEMA", "IIG": "IPATINGA", "IBA": "ITABIRA", "IRO": "ITABIRITO", "IGR": "ITAGUARA", 
-        "IJA": "ITAJUBÁ", "IMR": "ITAMARANDIBA", "ITC": "ITAMBACURI", "IOG": "ITAMOJI", "IMO": "ITAMONTE", "ITD": "ITANHANDU", "INH": "ITANHOMI", 
-        "IGY": "ITAPAJIPE", "IPC": "ITAPECERICA", "IAN": "ITAÚNA", "IUA": "ITUIUTABA", "IYM": "ITUMIRIM", "ITM": "ITURAMA", "JBU": "JABOTICATUBAS", 
-        "JNT": "JACINTO", "JCU": "JACUÍ", "JTA": "JACUTINGA", "JAB": "JAÍBA", "JUA": "JANAÚBA", "JNU": "JANUÁRIA", "JQI": "JEQUERI", 
-        "JQT": "JEQUITINHONHA", "JML": "João Monlevade", "JPI": "João Pinheiro", "JTB": "JUATUBA", "JFA": "Juiz de Fora", "LPT": "Lagoa da Prata", 
-        "LGT": "Lagoa Santa", "LJA": "Lajinha", "LAM": "Lambari", "LAV": "Lavras", "LPD": "Leopoldina", "LAD": "Lima Duarte", "LUZ": "LUZ", 
-        "MCD": "Machado", "MCH": "Malacacheta", "MAG": "Manga", "MNC": "Manhuaçu", "MIM": "Manhumirim", "MNN": "Mantena", "MEH": "Mar de Espanha", 
-        "MRN": "Mariana", "MHC": "Martinho Campos", "MAL": "Mateus Leme", "MBB": "Matias Barbosa", "MTZ": "Matozinhos", "MDA": "Medina", 
-        "MEE": "Mercês", "MQI": "Mesquita", "MNV": "Minas Novas", "MDO": "Miradouro", "MII": "Miraí", "MTV": "Montalvânia", "MAM": "Monte Alegre de Minas", 
-        "MZL": "Monte Azul", "MBE": "Monte Belo", "MOO": "Monte Carmelo", "MSM": "Monte Santo de Minas", "MSI": "Monte Sião", "MCL": "Montes Claros", 
-        "MNM": "Morada Nova de Minas", "MRE": "Muriaé", "MTM": "Mutum", "MUZ": "Muzambinho", "NNE": "Nanuque", "NAR": "Natércia", "NPO": "Nepomuceno", 
-        "NER": "Nova Era", "NLA": "Nova Lima", "NVN": "Nova Ponte", "NES": "Nova Resende", "NVS": "Nova Serrana", "NZO": "Novo Cruzeiro", 
-        "OLV": "Oliveira", "OUO": "Ouro Branco", "OUF": "Ouro Fino", "ORP": "Ouro Preto", "PAL": "Palma", "PRS": "Pará de Minas", "PTU": "Paracatu", 
-        "PGC": "Paraguaçu", "PSP": "Paraisópolis", "PEB": "Paraopeba", "PQO": "Passa-Quatro", "PST": "Passa-Tempo", "PSS": "Passos", "PMS": "Patos de Minas", 
-        "PTC": "Patrocínio", "PNH": "Peçanha", "PZL": "Pedra Azul", "PDV": "Pedralva", "PLO": "Pedro Leopoldo", "PEZ": "Perdizes", "PDS": "Perdões", 
-        "PRG": "Piranga", "PPN": "Pirapetinga", "PRR": "Pirapora", "PTI": "Pitangui", "PIU": "Piumhi", "POF": "Poço Fundo", "PCS": "Poços de Caldas", 
-        "PPE": "Pompéu", "PNV": "Ponte Nova", "PTH": "Porteirinha", "PSO": "Pouso Alegre", "PAD": "Prados", "PRT": "Prata", "PRO": "Pratápolis", 
-        "PEE": "Presidente Olegário", "RSS": "Raul Soares", "RED": "Resende Costa", "RSP": "Resplendor", "RNS": "Ribeirão das Neves", "RCS": "Rio Casca", 
-        "RNV": "Rio Novo", "RPA": "Rio Paranaíba", "RDS": "Rio Pardo de Minas", "RPC": "Rio Piracicaba", "RPB": "Rio Pomba", "RRE": "Rio Preto", 
-        "RIV": "Rio Vermelho", "SBA": "Sabará", "SNS": "Sabinópolis", "SQN": "Sacramento", "SLN": "Salinas", "SBB": "Santa Bárbara", "SLU": "Santa Luzia", 
-        "SUI": "Santa Maria do Suaçuí", "SRT": "Santa Rita de Caldas", "SRS": "Santa Rita do Sapucaí", "STV": "Santa Vitória", "SDT": "Santo Antônio do Monte", 
-        "SND": "Santos Dumont", "SDG": "São Domingos do Prata", "SFI": "São Francisco", "SGS": "São Gonçalo do Sapucaí", "SGT": "São Gotardo", 
-        "SJT": "São João da Ponte", "SOE": "São João del-Rei", "SSK": "São João do Paraíso", "SEG": "São João Evangelista", "SJN": "São João Nepomuceno", 
-        "SAL": "São Lourenço", "SRW": "São Romão", "SQS": "São Roque de Minas", "SSP": "São Sebastião do Paraíso", "SDF": "Senador Firmino", "SER": "Serro", 
-        "SLA": "Sete Lagoas", "SLP": "Silvianópolis", "TOE": "Taiobeiras", "TRM": "Tarumirim", "TXS": "Teixeiras", "TOT": "Teófilo Otôni", "TTO": "Timóteo", 
-        "TRZ": "Tiros", "TOS": "Tombos", "TCS": "Três Corações", "TMS": "Três Marias", "TSP": "Três Pontas", "TPC": "Tupaciguara", "TUR": "Turmalina", 
-        "UBA": "Ubá", "URA": "Uberaba", "ULA": "Uberlândia", "UNI": "Unaí", "VGA": "Varginha", "VZP": "Várzea da Palma", "VZE": "Vazante", 
+        "AET": "ABAETÉ", "ABN": "ABRE-CAMPO", "ACN": "AÇUCENA", "AGF": "ÁGUAS FORMOSAS", "AOR": "AIMORÉS", "AUD": "AIURUOCA",
+        "API": "ALÉM PARAÍBA", "AFN": "ALFENAS", "AMN": "ALMENARA", "ALS": "ALPINÓPOLIS", "ADC": "ALTO RIO DOCE", "ALL": "ALVINÓPOLIS",
+        "ANA": "ANDRADAS", "ADL": "ANDRELÂNDIA", "AUI": "ARAÇUAÍ", "ARI": "ARAGUARI", "AXA": "ARAXÁ", "ACS": "ARCOS", "ADO": "AREADO",
+        "AYN": "ARINOS", "BAD": "BAEPENDI", "BBI": "BAMBUÍ", "BCS": "BARÃO DE COCAIS", "BCA": "BARBACENA", "BSO": "BARROSO",
+        "BHE": "BELO HORIZONTE", "BLL": "BELO VALE", "BET": "BETIM", "BIS": "BICAS", "BOE": "BOA ESPERANÇA", "BCV": "BOCAIÚVA",
+        "BDP": "BOM DESPACHO", "BMS": "BOM SUCESSO", "BFM": "BONFIM", "BFS": "BONFINÓPOLIS DE MINAS", "BOM": "BORDA DA MATA",
+        "BHS": "BOTELHOS", "BMN": "BRASÍLIA DE MINAS", "BPS": "BRAZÓPOLIS", "BMO": "BRUMADINHO", "BBD": "BUENO BRANDÃO", "BUS": "BUENÓPOLIS",
+        "BII": "BURITIS", "CBV": "CABO VERDE", "CHS": "CACHOEIRA DE MINAS", "CET": "CAETÉ", "CAD": "CALDAS", "CDU": "CAMANDUCAIA",
+        "CBI": "CAMBUÍ", "CAQ": "CAMBUQUIRA", "CPH": "CAMPANHA", "CST": "CAMPESTRE", "CVE": "CAMPINA VERDE", "CPO": "Campo Belo",
+        "CMT": "CAMPOS ALTOS", "CPG": "CAMPOS GERAIS", "COI": "CANÁPOLIS", "CWA": "CANDEIAS", "CLH": "CAPELINHA", "CNS": "CAPINÓPOLIS",
+        "CRD": "CARANDAÍ", "CRL": "CARANGOLA", "CGA": "CARATINGA", "CCH": "CARLOS CHAGAS", "COM": "CARMO DA MATA", "CAE": "CARMO DE MINAS",
+        "CCU": "CARMO DO CAJURU", "CMI": "CARMO DO PARANAÍBA", "CRC": "CARMO DO RIO CLARO", "CRM": "CARMÓPOLIS DE MINAS", "CSA": "CÁSSIA",
+        "CGS": "CATAGUASES", "CAX": "CAXAMBU", "CLU": "CLÁUDIO", "CLS": "CONCEIÇÃO DAS ALAGOAS", "CMD": "CONCEIÇÃO DO MATO DENTRO",
+        "CVR": "CONCEIÇÃO DO RIO VERDE", "CNG": "CONGONHAS", "CQT": "CONQUISTA", "CNL": "CONSELHEIRO LAFAIETE", "CSN": "CONSELHEIRO PENA",
+        "CEM": "CONTAGEM", "COJ": "CORAÇÃO DE JESUS", "CIT": "CORINTO", "CEL": "COROMANDEL", "CRF": "CORONEL FABRICIANO", "CSI": "CRISTINA",
+        "CZL": "CRUZÍLIA", "CUV": "CURVELO", "DMT": "DIAMANTINA", "DVO": "DIVINO", "DVL": "DIVINÓPOLIS", "DDI": "DORES DO INDAIÁ",
+        "ELM": "ELÓI MENDES", "ERM": "ENTRE-RIOS DE MINAS", "ERV": "ERVÁLIA", "EES": "ESMERALDAS", "EEP": "ESPERA FELIZ", "EPS": "ESPINOSA",
+        "EEL": "ESTRELA DO SUL", "EOS": "EUGENÓPOLIS", "EXM": "EXTREMA", "FES": "FERROS", "FMA": "FORMIGA", "FCS": "FRANCISCO SÁ",
+        "FRU": "FRUTAL", "GLL": "GALILÉIA", "GVS": "GOVERNADOR VALADARES", "GGL": "GRÃO-MOGOL", "GHE": "GUANHÃES", "GUE": "GUAPÉ",
+        "GSA": "GUARANÉSIA", "GNI": "GUARANI", "GPE": "GUAXUPÉ", "IBY": "IBIÁ", "III": "IBIRACI", "IIB": "IBIRITÉ", "IRP": "IGARAPÉ",
+        "IUM": "IGUATAMA", "INP": "INHAPIM", "YAN": "IPANEMA", "IIG": "IPATINGA", "IBA": "ITABIRA", "IRO": "ITABIRITO", "IGR": "ITAGUARA",
+        "IJA": "ITAJUBÁ", "IMR": "ITAMARANDIBA", "ITC": "ITAMBACURI", "IOG": "ITAMOJI", "IMO": "ITAMONTE", "ITD": "ITANHANDU", "INH": "ITANHOMI",
+        "IGY": "ITAPAJIPE", "IPC": "ITAPECERICA", "IAN": "ITAÚNA", "IUA": "ITUIUTABA", "IYM": "ITUMIRIM", "ITM": "ITURAMA", "JBU": "JABOTICATUBAS",
+        "JNT": "JACINTO", "JCU": "JACUÍ", "JTA": "JACUTINGA", "JAB": "JAÍBA", "JUA": "JANAÚBA", "JNU": "JANUÁRIA", "JQI": "JEQUERI",
+        "JQT": "JEQUITINHONHA", "JML": "João Monlevade", "JPI": "João Pinheiro", "JTB": "JUATUBA", "JFA": "Juiz de Fora", "LPT": "Lagoa da Prata",
+        "LGT": "Lagoa Santa", "LJA": "Lajinha", "LAM": "Lambari", "LAV": "Lavras", "LPD": "Leopoldina", "LAD": "Lima Duarte", "LUZ": "LUZ",
+        "MCD": "Machado", "MCH": "Malacacheta", "MAG": "Manga", "MNC": "Manhuaçu", "MIM": "Manhumirim", "MNN": "Mantena", "MEH": "Mar de Espanha",
+        "MRN": "Mariana", "MHC": "Martinho Campos", "MAL": "Mateus Leme", "MBB": "Matias Barbosa", "MTZ": "Matozinhos", "MDA": "Medina",
+        "MEE": "Mercês", "MQI": "Mesquita", "MNV": "Minas Novas", "MDO": "Miradouro", "MII": "Miraí", "MTV": "Montalvânia", "MAM": "Monte Alegre de Minas",
+        "MZL": "Monte Azul", "MBE": "Monte Belo", "MOO": "Monte Carmelo", "MSM": "Monte Santo de Minas", "MSI": "Monte Sião", "MCL": "Montes Claros",
+        "MNM": "Morada Nova de Minas", "MRE": "Muriaé", "MTM": "Mutum", "MUZ": "Muzambinho", "NNE": "Nanuque", "NAR": "Natércia", "NPO": "Nepomuceno",
+        "NER": "Nova Era", "NLA": "Nova Lima", "NVN": "Nova Ponte", "NES": "Nova Resende", "NVS": "Nova Serrana", "NZO": "Novo Cruzeiro",
+        "OLV": "Oliveira", "OUO": "Ouro Branco", "OUF": "Ouro Fino", "ORP": "Ouro Preto", "PAL": "Palma", "PRS": "Pará de Minas", "PTU": "Paracatu",
+        "PGC": "Paraguaçu", "PSP": "Paraisópolis", "PEB": "Paraopeba", "PQO": "Passa-Quatro", "PST": "Passa-Tempo", "PSS": "Passos", "PMS": "Patos de Minas",
+        "PTC": "Patrocínio", "PNH": "Peçanha", "PZL": "Pedra Azul", "PDV": "Pedralva", "PLO": "Pedro Leopoldo", "PEZ": "Perdizes", "PDS": "Perdões",
+        "PRG": "Piranga", "PPN": "Pirapetinga", "PRR": "Pirapora", "PTI": "Pitangui", "PIU": "Piumhi", "POF": "Poço Fundo", "PCS": "Poços de Caldas",
+        "PPE": "Pompéu", "PNV": "Ponte Nova", "PTH": "Porteirinha", "PSO": "Pouso Alegre", "PAD": "Prados", "PRT": "Prata", "PRO": "Pratápolis",
+        "PEE": "Presidente Olegário", "RSS": "Raul Soares", "RED": "Resende Costa", "RSP": "Resplendor", "RNS": "Ribeirão das Neves", "RCS": "Rio Casca",
+        "RNV": "Rio Novo", "RPA": "Rio Paranaíba", "RDS": "Rio Pardo de Minas", "RPC": "Rio Piracicaba", "RPB": "Rio Pomba", "RRE": "Rio Preto",
+        "RIV": "Rio Vermelho", "SBA": "Sabará", "SNS": "Sabinópolis", "SQN": "Sacramento", "SLN": "Salinas", "SBB": "Santa Bárbara", "SLU": "Santa Luzia",
+        "SUI": "Santa Maria do Suaçuí", "SRT": "Santa Rita de Caldas", "SRS": "Santa Rita do Sapucaí", "STV": "Santa Vitória", "SDT": "Santo Antônio do Monte",
+        "SND": "Santos Dumont", "SDG": "São Domingos do Prata", "SFI": "São Francisco", "SGS": "São Gonçalo do Sapucaí", "SGT": "São Gotardo",
+        "SJT": "São João da Ponte", "SOE": "São João del-Rei", "SSK": "São João do Paraíso", "SEG": "São João Evangelista", "SJN": "São João Nepomuceno",
+        "SAL": "São Lourenço", "SRW": "São Romão", "SQS": "São Roque de Minas", "SSP": "São Sebastião do Paraíso", "SDF": "Senador Firmino", "SER": "Serro",
+        "SLA": "Sete Lagoas", "SLP": "Silvianópolis", "TOE": "Taiobeiras", "TRM": "Tarumirim", "TXS": "Teixeiras", "TOT": "Teófilo Otôni", "TTO": "Timóteo",
+        "TRZ": "Tiros", "TOS": "Tombos", "TCS": "Três Corações", "TMS": "Três Marias", "TSP": "Três Pontas", "TPC": "Tupaciguara", "TUR": "Turmalina",
+        "UBA": "Ubá", "URA": "Uberaba", "ULA": "Uberlândia", "UNI": "Unaí", "VGA": "Varginha", "VZP": "Várzea da Palma", "VZE": "Vazante",
         "VPN": "Vespasiano", "VCS": "Viçosa", "VGP": "Virginópolis", "VRB": "Visconde do Rio Branco"
     };
 
     // ===========================================================================================
-    // PARTE 1: ESTILOS (CORREÇÃO DE LARGURA DEFINITIVA E ASSISTENTE)
+    // PARTE 1: ESTILOS
     // ===========================================================================================
     const style = document.createElement('style');
     style.innerHTML = `
-        #tabelaLocalizadores tbody tr {
-            /* Avisa o navegador que as mudanças na linha não afetam o site inteiro */
-            contain: content;
-        }
+        #tabelaLocalizadores tbody tr { contain: content; }
+        #tabelaLocalizadores { width: 100% !important; table-layout: auto !important; border-collapse: collapse !important; }
+        #tabelaLocalizadores > tbody > tr > th, #tabelaLocalizadores > tbody > tr > td { padding: 5px 4px !important; vertical-align: middle !important; }
+        #tabelaLocalizadores > tbody > tr > th:nth-child(2), #tabelaLocalizadores > tbody > tr > td:nth-child(2) { width: 1px !important; white-space: nowrap !important; }
+        #tabelaLocalizadores > tbody > tr > th:nth-child(3), #tabelaLocalizadores > tbody > tr > td:nth-child(3) { width: 1px !important; white-space: nowrap !important; }
+        #tabelaLocalizadores > tbody > tr > th:last-child, #tabelaLocalizadores > tbody > tr > td:last-child { width: 1px !important; white-space: nowrap !important; }
+        #tabelaLocalizadores tbody { contain: content; }
 
-        /* --- CORREÇÃO ESTRUTURAL DA TABELA PRINCIPAL --- */
-        #tabelaLocalizadores {
-            width: 100% !important;
-            table-layout: auto !important;
-            border-collapse: collapse !important;
-        }
+        .eproc-col-data-nucleo, .th-nucleo-40 { width: 1px !important; white-space: nowrap !important; text-align: center; }
+        .eproc-col-origem-nucleo, .th-nucleo-origem { width: 1px !important; white-space: nowrap !important; text-align: center; max-width: 150px !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+        #tabelaLocalizadores > tbody > tr > th:nth-child(7), #tabelaLocalizadores > tbody > tr > td:nth-child(7) { white-space: normal !important; max-width: 220px !important; word-wrap: break-word !important; }
+        #tabelaLocalizadores > tbody > tr > th:nth-last-child(2), #tabelaLocalizadores > tbody > tr > td:nth-last-child(2) { white-space: normal !important; max-width: 250px !important; word-wrap: break-word !important; }
 
-        /* Proteção para afetar Apenas as células principais e não as tabelas internas (de ordenação) */
-        #tabelaLocalizadores > tbody > tr > th, #tabelaLocalizadores > tbody > tr > td {
-            padding: 5px 4px !important;
-            vertical-align: middle !important;
-        }
-
-        /* 1. COLUNAS COMPACTAS (Datas, Números, Inclusão) */
-        #tabelaLocalizadores > tbody > tr > th:nth-child(2), #tabelaLocalizadores > tbody > tr > td:nth-child(2) {
-            width: 1px !important;
-            white-space: nowrap !important;
-        }
-
-        #tabelaLocalizadores > tbody > tr > th:nth-child(3), #tabelaLocalizadores > tbody > tr > td:nth-child(3) {
-            width: 1px !important;
-            white-space: nowrap !important;
-        }
-
-        #tabelaLocalizadores > tbody > tr > th:last-child, #tabelaLocalizadores > tbody > tr > td:last-child {
-            width: 1px !important;
-            white-space: nowrap !important;
-        }
-
-        #tabelaLocalizadores tbody {
-            contain: content; /* Evita que a página inteira trave ao atualizar uma célula */
-        }
-
-        /* Colunas Inseridas pelo Script (Recebido / Origem) */
-        .eproc-col-data-nucleo, .th-nucleo-40 {
-            width: 1px !important;
-            white-space: nowrap !important;
-            text-align: center;
-        }
-        .eproc-col-origem-nucleo, .th-nucleo-origem {
-            width: 1px !important;
-            white-space: nowrap !important;
-            text-align: center;
-            max-width: 150px !important; /* Limite para sigla da vara não esticar demais */
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-        }
-
-        /* 2. COLUNAS DE TEXTO LONGO (Localizadores, Último Evento) */
-        #tabelaLocalizadores > tbody > tr > th:nth-child(7), #tabelaLocalizadores > tbody > tr > td:nth-child(7) {
-            white-space: normal !important;
-            max-width: 220px !important;     /* Largura fixa para forçar a quebra vertical */
-            word-wrap: break-word !important;
-        }
-
-        #tabelaLocalizadores > tbody > tr > th:nth-last-child(2), #tabelaLocalizadores > tbody > tr > td:nth-last-child(2) {
-            white-space: normal !important;
-            max-width: 250px !important;
-            word-wrap: break-word !important;
-        }
-
-        /* COLUNA E SPINNERS */
-        .eproc-col-data-nucleo {
-            font-family: 'Calibri', sans-serif !important; font-size: 11pt !important;
-            color: #000 !important;
-        }
-        .eproc-col-origem-nucleo {
-            font-family: 'Calibri', sans-serif !important; font-size: 10pt !important;
-            color: #444 !important;
-        }
-        .th-nucleo-40, .th-nucleo-origem {
-            font-family: 'Calibri', sans-serif !important; font-size: 11pt !important;
-            color: #000 !important; text-align: center !important; cursor: pointer;
-            background-color: #f0f0f2 !important;
-        }
+        .eproc-col-data-nucleo { font-family: 'Calibri', sans-serif !important; font-size: 11pt !important; color: #000 !important; }
+        .eproc-col-origem-nucleo { font-family: 'Calibri', sans-serif !important; font-size: 10pt !important; color: #444 !important; }
+        .th-nucleo-40, .th-nucleo-origem { font-family: 'Calibri', sans-serif !important; font-size: 11pt !important; color: #000 !important; text-align: center !important; cursor: pointer; background-color: #f0f0f2 !important; }
         .th-nucleo-40:hover, .th-nucleo-origem:hover { background-color: #e2e2e5 !important; }
 
-        .eproc-spinner {
-            border: 2px solid #f3f3f3; border-top: 2px solid #0081c2;
-            border-radius: 50%; width: 12px; height: 12px;
-            animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle;
-        }
+        .eproc-spinner { border: 2px solid #f3f3f3; border-top: 2px solid #0081c2; border-radius: 50%; width: 12px; height: 12px; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: middle; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* ANALYTICS: PARALISAÇÃO */
-        tr.tr-paralisado, tr.tr-paralisado > td {
-            background-color: #ffe6e6 !important;
-        }
-        .tr-paralisado td {
-            color: #a94442 !important;
-        }
+        tr.tr-paralisado, tr.tr-paralisado > td { background-color: #ffe6e6 !important; }
+        .tr-paralisado td { color: #a94442 !important; }
 
-        #eproc-alerta-paralisado {
-            background-color: #d9534f; color: #fff; font-weight: bold; text-transform: uppercase;
-            text-align: center; padding: 10px; margin-bottom: 15px; border-radius: 4px;
-            display: none; box-shadow: 0 2px 5px rgba(217, 83, 79, 0.4);
-            align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap;
-        }
+        #eproc-alerta-paralisado { background-color: #d9534f; color: #fff; font-weight: bold; text-transform: uppercase; text-align: center; padding: 10px; margin-bottom: 15px; border-radius: 4px; display: none; box-shadow: 0 2px 5px rgba(217, 83, 79, 0.4); align-items: center; justify-content: center; gap: 15px; flex-wrap: wrap; }
+        .eproc-badge-novo { background-color: #f39c12; color: #fff; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid #e67e22; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: inline-block; vertical-align: middle; text-transform: none; }
 
-        .eproc-badge-novo {
-            background-color: #f39c12; color: #fff; padding: 4px 10px; border-radius: 12px; 
-            font-size: 11px; font-weight: bold; border: 1px solid #e67e22; 
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: inline-block; vertical-align: middle; text-transform: none;
-        }
+        .eproc-btn-icon { width: 34px !important; padding: 6px 0 !important; text-align: center; margin-left: 5px; font-size: 16px !important; line-height: 1 !important; display: inline-flex !important; justify-content: center; align-items: center; }
+        .eproc-btn-icon svg { fill: currentColor; }
 
-        /* NOVOS BOTÕES E TOAST */
-        .eproc-btn-icon {
-            width: 34px !important; padding: 6px 0 !important; text-align: center; margin-left: 5px;
-            font-size: 16px !important; line-height: 1 !important;
-            display: inline-flex !important; justify-content: center; align-items: center;
-        }
-        .eproc-btn-icon svg {
-            fill: currentColor;
-        }
-
-        #eproc-relatorio-btn, #eproc-selecionar-paralisados-btn {
-            background-color: #fff; color: #d9534f; border: 1px solid #fff;
-            padding: 4px 12px; font-size: 11px; border-radius: 4px; cursor: pointer;
-            font-weight: bold; text-transform: none; margin-left: 10px;
-            transition: all 0.2s;
-        }
+        #eproc-relatorio-btn, #eproc-selecionar-paralisados-btn { background-color: #fff; color: #d9534f; border: 1px solid #fff; padding: 4px 12px; font-size: 11px; border-radius: 4px; cursor: pointer; font-weight: bold; text-transform: none; margin-left: 10px; transition: all 0.2s; }
         #eproc-relatorio-btn:hover, #eproc-selecionar-paralisados-btn:hover { background-color: #f8f8f8; color: #c9302c; }
 
-        #eproc-toast {
-            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            background-color: #4cae4c; color: white; padding: 10px 25px;
-            border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-            font-weight: bold; font-size: 14px; z-index: 99999;
-            opacity: 0; pointer-events: none; transition: opacity 0.3s;
-        }
+        #eproc-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #4cae4c; color: white; padding: 10px 25px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-weight: bold; font-size: 14px; z-index: 99999; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         #eproc-toast.show { opacity: 1; }
 
-        /* INTERFACE PRINCIPAL */
-        #eproc-seletor {
-            border: 1px solid #ccc !important; border-radius: 6px; padding: 15px;
-            margin: 10px auto 20px auto; width: 99%; background-color: #fff;
-            font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
+        #eproc-seletor { border: 1px solid #ccc !important; border-radius: 6px; padding: 15px; margin: 10px auto 20px auto; width: 99%; background-color: #fff; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
         .eproc-legend { font-size: 1.2em; font-weight: bold; color: #000; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: block; width: 100%; }
         .eproc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
         .eproc-form-control { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; border-radius: 4px; color: #333; }
 
-        .eproc-btn {
-            display: inline-block; padding: 6px 12px; font-size: 13px; font-weight: 500;
-            text-align: center; cursor: pointer; border: 1px solid #ccc; border-radius: 6px !important;
-            background-image: linear-gradient(to bottom, #fff 0, #e0e0e0 100%); color: #333; transition: all 0.2s;
-        }
+        .eproc-btn { display: inline-block; padding: 6px 12px; font-size: 13px; font-weight: 500; text-align: center; cursor: pointer; border: 1px solid #ccc; border-radius: 6px !important; background-image: linear-gradient(to bottom, #fff 0, #e0e0e0 100%); color: #333; transition: all 0.2s; }
         .eproc-btn:hover { background-image: none; background-color: #e0e0e0; }
         .eproc-btn-secondary { background: #fff !important; color: #0081c2; }
         .eproc-btn-secondary:hover { background-color: #eef8fa !important; }
@@ -266,27 +152,17 @@
         .eproc-btn-success { background-image: linear-gradient(to bottom, #5cb85c 0, #419641 100%); border-color: #4cae4c; color: #fff; }
 
         #eproc-add-btn:hover { background-image: linear-gradient(to bottom, #449d44 0, #398439 100%) !important; background-color: #449d44 !important; border-color: #398439 !important; }
-
         .eproc-btn-filtro-padrao { background: #fff !important; color: #0081c2 !important; font-weight: normal !important; background-image: none !important; }
         .eproc-btn-filtro-padrao:hover { background-color: #eef8fa !important; border-color: #0081c2 !important; }
 
-        /* TAGS E FEEDBACK */
         #eproc-criterios-lista { display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; align-items: center; }
         .eproc-tag { background-color: #d9edf7; color: #31708f; border: 1px solid #bce8f1; border-radius: 14px; padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px; font-weight: 600; cursor: default; }
         .eproc-tag-close { cursor: pointer; font-weight: bold; color: #a94442; font-size: 14px; margin-left: 2px; }
 
-        /* CÃO DE GUARDA (FEEDBACK) */
-        #eproc-feedback {
-            margin-top: 10px; padding: 12px; border-radius: 4px; font-weight: bold;
-            display: none; text-align: center; font-size: 13px;
-            background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba;
-            animation: pulse-alert 1.5s infinite;
-        }
+        #eproc-feedback { margin-top: 10px; padding: 12px; border-radius: 4px; font-weight: bold; display: none; text-align: center; font-size: 13px; background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; animation: pulse-alert 1.5s infinite; }
         @keyframes pulse-alert { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
-
         #eproc-contador { text-align: right; color: #777; font-size: 13px; margin-top: 5px; }
 
-        /* BOTOES AGRUPADOS */
         .eproc-btn-group { display: inline-flex; vertical-align: middle; transition: transform 0.2s; }
         .eproc-btn-group.reorder-mode { cursor: move; animation: pulse 0.5s infinite; }
         .eproc-btn-group .eproc-btn { border-radius: 0 !important; margin-right: 0; }
@@ -294,17 +170,8 @@
         .eproc-btn-group .eproc-btn:last-child { border-top-right-radius: 6px !important; border-bottom-right-radius: 6px !important; color: #d9534f; font-weight: bold; }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
-        /* MODAL POPUP */
-        .eproc-modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 10000;
-            display: flex; justify-content: center; align-items: center;
-        }
-        .eproc-modal-content {
-            background: #fff; padding: 20px; border-radius: 6px; width: 320px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-family: Arial, sans-serif;
-            border: 1px solid #ccc; max-height: 90vh; overflow-y: auto;
-        }
+        .eproc-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; }
+        .eproc-modal-content { background: #fff; padding: 20px; border-radius: 6px; width: 320px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-family: Arial, sans-serif; border: 1px solid #ccc; max-height: 90vh; overflow-y: auto; }
         .eproc-modal-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
         .eproc-modal-field { margin-bottom: 15px; }
         .eproc-modal-label { display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px; color: #555; }
@@ -317,52 +184,18 @@
         .eproc-radio-group { display: flex; align-items: center; gap: 15px; margin-right: 15px; border-right: 1px solid #eee; padding-right: 15px; height: 100%; }
         .eproc-radio-label { font-size: 12px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 4px; margin: 0 !important; padding: 0 !important; line-height: 1; }
         .eproc-radio-label input[type="radio"] { margin: 0 !important; margin-top: 1px !important; cursor: pointer; }
-        
+
         .eproc-btn-magic { background-image: linear-gradient(to bottom, #f39c12 0, #e67e22 100%); color: #fff; font-weight: bold; border-color: #d35400; }
         .eproc-btn-magic:hover { background-image: none; background-color: #e67e22; color: #fff; }
         .eproc-dist-item { border: 1px solid #eee; padding: 10px; border-radius: 4px; margin-bottom: 10px; background-color: #fcfcfc; }
         .eproc-dist-title { font-weight: bold; color: #333; font-size: 13px; margin-bottom: 5px; }
         .eproc-dist-count { font-size: 11px; color: #777; margin-bottom: 8px; }
 
-        /* NAVEGAÇÃO FLUTUANTE (SETAS) */
-        #eproc-nav-flutuante {
-            position: fixed;
-            right: 15px;
-            top: 50%;
-            transform: translateY(-50%);
-            display: none;
-            flex-direction: column;
-            gap: 8px;
-            z-index: 9998;
-            opacity: 0.4;
-            transition: opacity 0.3s ease;
-        }
-        #eproc-nav-flutuante:hover {
-            opacity: 1;
-        }
-        .eproc-nav-btn {
-            width: 28px;
-            height: 28px;
-            border-radius: 50%;
-            background-color: #fff;
-            border: 1px solid #ccc;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: #666;
-            outline: none;
-        }
-        .eproc-nav-btn:hover {
-            background-color: #f8f8f8;
-            color: #333;
-        }
-        .eproc-nav-btn svg {
-            fill: currentColor;
-            width: 18px;
-            height: 18px;
-        }
+        #eproc-nav-flutuante { position: fixed; right: 15px; top: 50%; transform: translateY(-50%); display: none; flex-direction: column; gap: 8px; z-index: 9998; opacity: 0.4; transition: opacity 0.3s ease; }
+        #eproc-nav-flutuante:hover { opacity: 1; }
+        .eproc-nav-btn { width: 28px; height: 28px; border-radius: 50%; background-color: #fff; border: 1px solid #ccc; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; display: flex; justify-content: center; align-items: center; color: #666; outline: none; }
+        .eproc-nav-btn:hover { background-color: #f8f8f8; color: #333; }
+        .eproc-nav-btn svg { fill: currentColor; width: 18px; height: 18px; }
     `;
     document.head.appendChild(style);
 
@@ -370,13 +203,7 @@
     // CACHE MANAGER & INFRA
     // ===========================================================================================
     const CacheManager = {
-        db: null,
-        memoryCache: new Map(),
-        writeBuffer:[],
-        writeTimer: null,
-        initPromise: null,
-        ready: false,
-
+        db: null, memoryCache: new Map(), writeBuffer:[], writeTimer: null, initPromise: null, ready: false,
         init: function() {
             if (this.initPromise) return this.initPromise;
             this.initPromise = new Promise((resolve) => {
@@ -387,17 +214,13 @@
                     if (!db.objectStoreNames.contains(STORE_PARALISADOS)) db.createObjectStore(STORE_PARALISADOS, { keyPath: "id" });
                 };
                 request.onsuccess = (event) => {
-                    this.db = event.target.result;
-                    this.ready = true;
-                    this.cleanupOldData();
-                    this.migrateDatesFromLocalStorage();
-                    resolve(this.db);
+                    this.db = event.target.result; this.ready = true;
+                    this.cleanupOldData(); this.migrateDatesFromLocalStorage(); resolve(this.db);
                 };
-                request.onerror = (event) => { this.ready = true; resolve(); };
+                request.onerror = () => { this.ready = true; resolve(); };
             });
             return this.initPromise;
         },
-
         getAsync: function(id) {
             return new Promise((resolve) => {
                 if (!this.db) { resolve(null); return; }
@@ -413,7 +236,6 @@
                 req.onerror = () => resolve(null);
             });
         },
-
         warmupChunk: function(keys) {
             return new Promise((resolve) => {
                 if (!this.db || keys.length === 0) { resolve(); return; }
@@ -432,16 +254,13 @@
                 });
             });
         },
-
         checkNovosParalisados: function(ids) {
             return new Promise((resolve) => {
                 if (!this.db || ids.length === 0) { resolve([]); return; }
                 try {
                     const tx = this.db.transaction([STORE_PARALISADOS], "readwrite");
                     const store = tx.objectStore(STORE_PARALISADOS);
-                    const novos =[];
-                    let processados = 0;
-                    const now = Date.now();
+                    const novos =[]; let processados = 0; const now = Date.now();
                     ids.forEach(id => {
                         if (paralisadosNovosSessao.has(id)) { novos.push(id); checkDone(); return; }
                         const req = store.get(id);
@@ -455,21 +274,18 @@
                 } catch (e) { resolve([]); }
             });
         },
-
         migrateDatesFromLocalStorage: async function() {
             try {
                 const oldCacheStr = localStorage.getItem("eproc_dates_cache_v2_persistent");
                 if (oldCacheStr) {
                     const tx = this.db.transaction([STORE_NAME], "readwrite");
                     const store = tx.objectStore(STORE_NAME);
-                    const now = Date.now();
                     const oldData = JSON.parse(oldCacheStr);
-                    for (const [id, val] of Object.entries(oldData)) store.put({ id: id, value: val, timestamp: now });
+                    for (const [id, val] of Object.entries(oldData)) store.put({ id: id, value: val, timestamp: Date.now() });
                     localStorage.removeItem("eproc_dates_cache_v2_persistent");
                 }
             } catch (e) {}
         },
-
         cleanupOldData: function() {
             try {
                 const tx = this.db.transaction([STORE_NAME], "readwrite");
@@ -485,9 +301,7 @@
                 };
             } catch (e) {}
         },
-
         getSync: function(id) { return this.memoryCache.get(id); },
-
         set: function(id, val) {
             this.memoryCache.set(id, val);
             this.writeBuffer.push({ id: id, value: val, timestamp: Date.now() });
@@ -497,7 +311,6 @@
                 this.writeTimer = setTimeout(() => this.flushBuffer(), 5000);
             }
         },
-
         flushBuffer: function() {
             if (this.writeBuffer.length === 0 || !this.db) return;
             const batch =[...this.writeBuffer]; this.writeBuffer =[];
@@ -589,7 +402,7 @@
         },
         renderizarDoCache: function(celula, linha, value) {
             const parts = value.split('###'); const dataStr = parts[0]; const origemStr = parts[1] || "-";
-            if (/^\d{2}\/\d{2}\/\d{4}$/.test(dataStr)) {
+            if (regexData.test(dataStr)) {
                 DomBatcher.add(celula, `<span style="color:#000;">${dataStr}</span>`, linha, { 'data-nucleo-carregado': 'true', 'data-nucleo-status': null });
                 const celulaOrigem = celula.nextElementSibling;
                 if(celulaOrigem && celulaOrigem.classList.contains('eproc-col-origem-nucleo')) {
@@ -619,21 +432,8 @@
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const text = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
                 if (text.length < 500 || text.includes("Sua sessão foi encerrada")) throw new Error("SESSAO_ENCERRADA");
-                this.parseAndFinish(text, task);
-            } catch (error) {
-                this.active--; task.retries++;
-                if (error.message === "SESSAO_ENCERRADA" || error.message.includes("Sessão")) {
-                    this.pauseUntil = Date.now() + 15000; task.linha.setAttribute('data-nucleo-status', 'queued');
-                    this.queue.push(task); setTimeout(() => this.process(), 15000); return;
-                }
-                if (!document.body.contains(task.linha)) { this.process(); return; }
-                const color = task.retries > 10 ? "purple" : (task.retries > 5 ? "red" : "orange");
-                DomBatcher.add(task.celula, `<div class="eproc-spinner" style="border-top-color: ${color};"></div>`, task.linha, { 'data-nucleo-status': 'waiting-retry' });
-                setTimeout(() => { task.linha.setAttribute('data-nucleo-status', 'queued'); this.queue.push(task); this.process(); }, Math.min((task.retries * 3000) + 2000, 45000));
-            }
-        },
-        parseAndFinish: function(text, task) {
-            try {
+
+                // RENDERIZAÇÃO SÍNCRONA SE ENCONTRADO
                 let dataAchada = null, origemAchada = "-";
                 const regexOrigem = /\(([^()]+?)\s+para\s+.*?(?:4\.0)/i;
                 const idx = text.indexOf(TEXTO_ALVO_1);
@@ -647,7 +447,7 @@
                     const doc = new DOMParser().parseFromString(text, "text/html");
                     for (let tr of doc.querySelectorAll('#tblEventos tr')) {
                         if (tr.textContent.includes(TEXTO_ALVO_1) || (tr.textContent.includes("Remetidos os Autos") && tr.textContent.includes(TEXTO_ALVO_2))) {
-                            const match = tr.cells[2]?.innerText.match(/(\d{2}\/\d{2}\/\d{4})/);
+                            const match = tr.cells[2]?.textContent.trim().match(/(\d{2}\/\d{2}\/\d{4})/);
                             if (match) {
                                 dataAchada = match[1];
                                 const mOrigem = tr.textContent.match(regexOrigem);
@@ -662,9 +462,17 @@
                     this.renderizarDoCache(task.celula, task.linha, `${dataAchada}###${origemAchada}`);
                     this.active--; this.process();
                 } else throw new Error("Data pattern not found");
-            } catch (e) {
-                this.active--; task.retries++; task.linha.setAttribute('data-nucleo-status', 'queued');
-                this.queue.push(task); setTimeout(() => this.process(), 1000);
+
+            } catch (error) {
+                this.active--; task.retries++;
+                if (error.message === "SESSAO_ENCERRADA" || error.message.includes("Sessão")) {
+                    this.pauseUntil = Date.now() + 15000; task.linha.setAttribute('data-nucleo-status', 'queued');
+                    this.queue.push(task); setTimeout(() => this.process(), 15000); return;
+                }
+                if (!document.body.contains(task.linha)) { this.process(); return; }
+                const color = task.retries > 10 ? "purple" : (task.retries > 5 ? "red" : "orange");
+                DomBatcher.add(task.celula, `<div class="eproc-spinner" style="border-top-color: ${color};"></div>`, task.linha, { 'data-nucleo-status': 'waiting-retry' });
+                setTimeout(() => { task.linha.setAttribute('data-nucleo-status', 'queued'); this.queue.push(task); this.process(); }, Math.min((task.retries * 3000) + 2000, 45000));
             }
         }
     };
@@ -678,7 +486,7 @@
     scheduleKeepAlive();
 
     // ===========================================================================================
-    // PARTE 3: TABELA E CHUNK PROCESSING (COM INDICADOR NATIVO E CORREÇÃO DE CABEÇALHO)
+    // PARTE 3: TABELA E CHUNK PROCESSING
     // ===========================================================================================
     let ordemData = 'desc'; let ordemOrigem = 'asc';
     function obterDataSegura(str) {
@@ -690,8 +498,8 @@
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return;
         const th = tabela.querySelector(colClass === '.eproc-col-data-nucleo' ? '.th-nucleo-40' : '.th-nucleo-origem');
-        if (!th) return; 
-        const parent = th.closest('tbody') || tabela.querySelector('tbody') || tabela; 
+        if (!th) return;
+        const parent = th.closest('tbody') || tabela.querySelector('tbody') || tabela;
 
         document.querySelectorAll('.th-nucleo-40 .sort-up, .th-nucleo-origem .sort-up').forEach(img => img.src = 'infra_css/imagens/seta_acima.gif');
         document.querySelectorAll('.th-nucleo-40 .sort-down, .th-nucleo-origem .sort-down').forEach(img => img.src = 'infra_css/imagens/seta_abaixo.gif');
@@ -707,11 +515,10 @@
         }
 
         const isData = colClass === '.eproc-col-data-nucleo';
-        
         const rows = getLinhasProcessos().filter(tr => tr.querySelector(colClass));
-        
+
         rows.sort((a, b) => {
-            const vA = a.cells[th.cellIndex]?.innerText.trim() || ""; const vB = b.cells[th.cellIndex]?.innerText.trim() || "";
+            const vA = a.cells[th.cellIndex]?.textContent.trim() || ""; const vB = b.cells[th.cellIndex]?.textContent.trim() || "";
             if (isData) {
                 const dA = obterDataSegura(vA); const dB = obterDataSegura(vB);
                 if (!dA) return 1; if (!dB) return -1;
@@ -726,13 +533,13 @@
 
     function verificarParalisacao(linha, idxEvento) {
         if (!linha || idxEvento === -1) return false;
-        const texto = linha.cells[idxEvento]?.innerText.trim();
+        const texto = linha.cells[idxEvento]?.textContent.trim();
         const dataEvento = obterDataSegura(texto);
         if (dataEvento) {
             const hoje = new Date(); hoje.setHours(0,0,0,0); dataEvento.setHours(0,0,0,0);
             if (Math.ceil(Math.abs(hoje - dataEvento) / 86400000) >= 30) {
                 linha.classList.add('tr-paralisado');
-                const num = linha.querySelector('a[href*="acao=processo_selecionar"]')?.innerText.trim().replace(/\D/g, '');
+                const num = linha.querySelector('a[href*="acao=processo_selecionar"]')?.textContent.trim().replace(/\D/g, '');
                 if (num && paralisadosNovosSessao.has(num)) linha.classList.add('tr-novo-paralisado');
                 return true;
             } else { linha.classList.remove('tr-paralisado', 'tr-novo-paralisado'); }
@@ -788,73 +595,110 @@
 
         const colIdxDate = header.querySelector('.th-nucleo-40').cellIndex;
         isScanning = true; const linhas = getLinhasProcessos();
-        let index = 0; const chunkSize = 20;
+        if (linhas.length === 0) return;
 
-        function processarChunk() {
-            const fim = Math.min(index + chunkSize, linhas.length);
-            const keysToWarm =[];
-            for (let i = index; i < fim; i++) {
-                const tr = linhas[i]; 
-                if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
-                
-                const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                if (link) {
-                    const numProc = link.innerText.trim().replace(/\D/g, '');
-                    if (!CacheManager.getSync(numProc)) keysToWarm.push(numProc);
-                }
+        let temParalisado = false;
+
+        const processRow = (tr) => {
+            if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
+            if (verificarParalisacao(tr, idxEvento)) temParalisado = true;
+
+            let tdDate = tr.querySelector('.eproc-col-data-nucleo');
+            if (!tdDate) {
+                tdDate = document.createElement('td'); tdDate.className = 'infraTd eproc-col-data-nucleo'; tdDate.textContent = "...";
+                tr.insertBefore(tdDate, tr.cells[colIdxDate]);
+            }
+            let tdOrigem = tr.querySelector('.eproc-col-origem-nucleo');
+            if (!tdOrigem) {
+                tdOrigem = document.createElement('td'); tdOrigem.className = 'infraTd eproc-col-origem-nucleo'; tdOrigem.textContent = "...";
+                if (tdDate.nextSibling) tr.insertBefore(tdOrigem, tdDate.nextSibling); else tr.appendChild(tdOrigem);
             }
 
-            CacheManager.warmupChunk(keysToWarm).then(() => {
-                for (let i = index; i < fim; i++) {
-                    const tr = linhas[i]; 
-                    verificarParalisacao(tr, idxEvento);
+            if (!tr.getAttribute('data-nucleo-carregado') && !tr.getAttribute('data-nucleo-status')) {
+                const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
+                if (link) {
+                    const numProc = link.textContent.trim().replace(/\D/g, '');
+                    const cachedValue = CacheManager.getSync(numProc) || CacheManager.getSync(link.href);
 
-                    let tdDate = tr.querySelector('.eproc-col-data-nucleo');
-                    if (!tdDate) { tdDate = document.createElement('td'); tdDate.className = 'infraTd eproc-col-data-nucleo'; tdDate.textContent = "..."; tr.insertBefore(tdDate, tr.cells[colIdxDate]); }
-                    let tdOrigem = tr.querySelector('.eproc-col-origem-nucleo');
-                    if (!tdOrigem) {
-                        tdOrigem = document.createElement('td'); tdOrigem.className = 'infraTd eproc-col-origem-nucleo'; tdOrigem.textContent = "...";
-                        if (tdDate.nextSibling) tr.insertBefore(tdOrigem, tdDate.nextSibling); else tr.appendChild(tdOrigem);
+                    if (cachedValue) {
+                        const parts = cachedValue.split('###');
+                        const dataStr = parts[0];
+                        const origemStr = parts[1] || "-";
+                        if (regexData.test(dataStr)) {
+                            tdDate.innerHTML = `<span style="color:#000;">${dataStr}</span>`;
+                            tdOrigem.innerHTML = `<span title="${origemStr}">${origemStr}</span>`;
+                            tr.setAttribute('data-nucleo-carregado', 'true');
+                            tr.setAttribute('data-idx-text', (tr.getAttribute('data-idx-text') || "") + " " + origemStr.toUpperCase());
+                        }
+                    } else {
+                        filaDeProcessamento.add(link.href, tdDate, tr, numProc);
                     }
-
-                    if (!tr.getAttribute('data-nucleo-carregado') && !tr.getAttribute('data-nucleo-status')) {
-                        const link = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                        if (link) filaDeProcessamento.add(link.href, tdDate, tr, link.innerText.trim().replace(/\D/g, ''));
-                        else { tdDate.textContent = "-"; tdOrigem.textContent = "-"; tr.setAttribute('data-nucleo-carregado', 'true'); }
-                    }
+                } else {
+                    tdDate.textContent = "-"; tdOrigem.textContent = "-"; tr.setAttribute('data-nucleo-carregado', 'true');
                 }
-                index = fim;
-                if (index < linhas.length) requestAnimationFrame(processarChunk);
-                else {
-                    isScanning = false;
-                    const alertaDiv = document.getElementById('eproc-alerta-paralisado');
-                    if (alertaDiv) {
-                        const trsParalisados = document.querySelectorAll('tr.tr-paralisado');
-                        if (trsParalisados.length > 0) {
-                            if (alertaDiv.getAttribute('data-qtd-paralisados') !== String(trsParalisados.length)) {
-                                alertaDiv.setAttribute('data-qtd-paralisados', String(trsParalisados.length));
-                                const idsParalisados =[]; const mapTrs = {};
-                                trsParalisados.forEach(tr => {
-                                    const num = tr.querySelector('a[href*="acao=processo_selecionar"]')?.innerText.trim().replace(/\D/g, '');
-                                    if(num) { idsParalisados.push(num); mapTrs[num] = tr; }
-                                });
-                                CacheManager.checkNovosParalisados(idsParalisados).then(novosIds => {
-                                    novosIds.forEach(id => { if (mapTrs[id]) mapTrs[id].classList.add('tr-novo-paralisado'); });
-                                    alertaDiv.style.display = 'flex'; alertaDiv.innerHTML = '';
-                                    const textoSpan = document.createElement('span'); textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} PROCESSOS PARALISADOS HÁ MAIS DE 30 DIAS! `; alertaDiv.appendChild(textoSpan);
-                                    if (novosIds.length > 0) {
-                                        const badge = document.createElement('span'); badge.className = 'eproc-badge-novo'; badge.textContent = `Há ${novosIds.length} novos paralisados`; alertaDiv.appendChild(badge);
-                                    }
-                                    criarBotoesAlerta(alertaDiv, idxEvento, trsParalisados.length, novosIds.length);
-                                });
+            }
+        };
+
+        const finalize = () => {
+            isScanning = false;
+            const alertaDiv = document.getElementById('eproc-alerta-paralisado');
+            if (alertaDiv) {
+                const trsParalisados = document.querySelectorAll('tr.tr-paralisado');
+                if (trsParalisados.length > 0) {
+                    if (alertaDiv.getAttribute('data-qtd-paralisados') !== String(trsParalisados.length)) {
+                        alertaDiv.setAttribute('data-qtd-paralisados', String(trsParalisados.length));
+                        const idsParalisados =[]; const mapTrs = {};
+                        trsParalisados.forEach(tr => {
+                            const num = tr.querySelector('a[href*="acao=processo_selecionar"]')?.textContent.trim().replace(/\D/g, '');
+                            if(num) { idsParalisados.push(num); mapTrs[num] = tr; }
+                        });
+                        CacheManager.checkNovosParalisados(idsParalisados).then(novosIds => {
+                            novosIds.forEach(id => { if (mapTrs[id]) mapTrs[id].classList.add('tr-novo-paralisado'); });
+                            alertaDiv.style.display = 'flex'; alertaDiv.innerHTML = '';
+                            const textoSpan = document.createElement('span'); textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} PROCESSOS PARALISADOS HÁ MAIS DE 30 DIAS! `; alertaDiv.appendChild(textoSpan);
+                            if (novosIds.length > 0) {
+                                const badge = document.createElement('span'); badge.className = 'eproc-badge-novo'; badge.textContent = `Há ${novosIds.length} novos paralisados`; alertaDiv.appendChild(badge);
                             }
-                        } else { alertaDiv.style.display = 'none'; alertaDiv.removeAttribute('data-qtd-paralisados'); }
+                            criarBotoesAlerta(alertaDiv, idxEvento, trsParalisados.length, novosIds.length);
+                        });
                     }
-                    if (filaDeProcessamento.queue.length > 0 && filaDeProcessamento.active < MAX_CONCURRENCY) filaDeProcessamento.process();
+                } else {
+                    alertaDiv.style.display = 'none'; alertaDiv.removeAttribute('data-qtd-paralisados');
                 }
-            });
+            }
+            if (filaDeProcessamento.queue.length > 0 && filaDeProcessamento.active < MAX_CONCURRENCY) {
+                filaDeProcessamento.process();
+            }
+        };
+
+        // FASE 1: 10 primeiros processos processados imediatamente
+        const limitFirst = Math.min(10, linhas.length);
+        for (let i = 0; i < limitFirst; i++) {
+            processRow(linhas[i]);
         }
-        processarChunk();
+
+        // FASE 2: O Restante em bloco de leitura do IndexedDB
+        if (linhas.length > limitFirst) {
+            requestAnimationFrame(() => {
+                const keysToWarm =[];
+                for (let i = limitFirst; i < linhas.length; i++) {
+                    const link = linhas[i].querySelector('a[href*="acao=processo_selecionar"]');
+                    if (link) {
+                        const numProc = link.textContent.trim().replace(/\D/g, '');
+                        if (!CacheManager.getSync(numProc)) keysToWarm.push(numProc);
+                    }
+                }
+
+                CacheManager.warmupChunk(keysToWarm).then(() => {
+                    for (let i = limitFirst; i < linhas.length; i++) {
+                        processRow(linhas[i]);
+                    }
+                    finalize();
+                });
+            });
+        } else {
+            finalize();
+        }
     }
 
     function criarBotoesAlerta(alertaDiv, idxEvento, totalParalisados, totalNovos) {
@@ -873,9 +717,9 @@
                 <button id="btn-rel-digito" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Relatório Por Dígito</button>
                 <button id="btn-rel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
             document.body.appendChild(overlay);
-            
+
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
-            
+
             const getFiltrados = () => {
                 let paralisados = Array.from(document.querySelectorAll('tr.tr-paralisado'));
                 if (totalNovos > 0 && document.querySelector('input[name="eproc-rel-scope"]:checked')?.value === 'novos') {
@@ -883,32 +727,32 @@
                 }
                 return paralisados;
             };
-            
+
             document.getElementById('btn-rel-cancel').onclick = fechar;
-            
+
             document.getElementById('btn-rel-geral').onclick = () => {
-                const paralisados = getFiltrados(); 
-                fechar(); 
+                const paralisados = getFiltrados();
+                fechar();
                 if (!paralisados.length) return;
-                
+
                 let html = '<table border="1"><thead><tr><th>Processo</th><th>Último Evento</th></tr></thead><tbody>'; let texto = 'Processo\tÚltimo Evento\n';
                 paralisados.forEach(tr => {
                     const l = tr.querySelector('a[href*="acao=processo_selecionar"]'); const c = tr.cells[idxEvento];
-                    const num = l ? l.innerText.trim() : "N/A"; const evt = c ? c.innerText.replace(/\s+/g, ' ').trim() : "";
+                    const num = l ? l.textContent.trim() : "N/A"; const evt = c ? c.textContent.replace(/\s+/g, ' ').trim() : "";
                     html += `<tr><td><a href="${l?.href||''}">${num}</a></td><td>${evt}</td></tr>`; texto += `${num}\t${evt}\n`;
                 });
                 html += '</tbody></table>'; copiarParaClipboard(html, texto);
             };
-            
+
             document.getElementById('btn-rel-digito').onclick = () => {
-                const paralisados = getFiltrados(); 
-                fechar(); 
+                const paralisados = getFiltrados();
+                fechar();
                 if (!paralisados.length) return;
-                
+
                 const buckets = Array.from({length: 10}, () =>[]);
                 paralisados.forEach(tr => {
                     const l = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                    if(l) { const num = l.innerText.trim(); const d = parseInt(num.match(/(\d)-/)?.[1]); if (!isNaN(d)) buckets[d].push({ num, href: l.href }); }
+                    if(l) { const num = l.textContent.trim(); const d = parseInt(num.match(/(\d)-/)?.[1]); if (!isNaN(d)) buckets[d].push({ num, href: l.href }); }
                 });
                 let html = '<table border="1" style="border-collapse:collapse;text-align:center;"><thead><tr>';
                 for(let i=0; i<=9; i++) html += `<th style="background:#f0f0f2;padding:5px;">Dígito ${i}</th>`; html += '</tr></thead><tbody>';
@@ -941,10 +785,20 @@
             if (!paralisados.length) { alert('Nenhum processo correspondente identificado na tela ainda.'); return; }
             requestAnimationFrame(() => {
                 let count = 0;
-                paralisados.forEach(tr => {
-                    const chk = tr.querySelector('input[type="checkbox"]');
-                    if (chk) { if(!chk.checked) chk.click(); tr.style.backgroundColor = '#eef8fa'; tr.style.borderLeft = '4px solid #0081c2'; count++; }
-                });
+                // HIJACK & BATCH
+                const originalCheck = window.selecionaCheckLocalizadores;
+                if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+                try {
+                    paralisados.forEach(tr => {
+                        const chk = tr.querySelector('input[type="checkbox"]');
+                        if (chk) { if(!chk.checked) chk.click(); tr.style.backgroundColor = '#eef8fa'; tr.style.borderLeft = '4px solid #0081c2'; count++; }
+                    });
+                } finally {
+                    if (typeof originalCheck === 'function') {
+                        window.selecionaCheckLocalizadores = originalCheck;
+                        originalCheck();
+                    }
+                }
                 document.getElementById('eproc-contador').textContent = `Itens selecionados: ${document.querySelectorAll('table tr input[type="checkbox"]:checked').length}`;
                 updateNavVisibility();
             });
@@ -954,7 +808,7 @@
     // ===========================================================================================
     // PARTE 4: NAVEGAÇÃO FLUTUANTE DE SELEÇÃO
     // ===========================================================================================
-    
+
     let currentNavIndex = -1;
 
     function updateNavVisibility() {
@@ -965,7 +819,7 @@
                 nav.style.display = 'flex';
             } else {
                 nav.style.display = 'none';
-                currentNavIndex = -1; 
+                currentNavIndex = -1;
             }
         }
     }
@@ -993,7 +847,7 @@
             tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
             const originalBg = tr.style.backgroundColor;
             tr.style.transition = 'background-color 0.3s';
-            tr.style.backgroundColor = '#ffeeba'; 
+            tr.style.backgroundColor = '#ffeeba';
             setTimeout(() => {
                 tr.style.backgroundColor = originalBg;
             }, 800);
@@ -1003,11 +857,11 @@
     // ===========================================================================================
     // PARTE 5: ASSISTENTES DE DISTRIBUIÇÃO E LÓGICA DE INTERFACE
     // ===========================================================================================
-    
+
     function parseOrigem(textoOrigem) {
         if (!textoOrigem) return null;
         let comarca = "";
-        let vara = "ÚNICA"; 
+        let vara = "ÚNICA";
 
         const matchSigla = textoOrigem.match(/\b([A-Z]{3})\b/);
         if (matchSigla && COMARCAS_MAP[matchSigla[1]]) {
@@ -1021,7 +875,7 @@
         const cleanText = textoOrigem.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
         if (!cleanText.includes("UNICA") && !cleanText.includes("ÚNICA")) {
             const matchVara = cleanText.match(/(\d+)[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
-            if (matchVara) vara = matchVara[1] + "VC"; 
+            if (matchVara) vara = matchVara[1] + "VC";
         }
 
         if (comarca) return { comarca, vara };
@@ -1032,14 +886,14 @@
         if (!parsedOrigem) return null;
         const options = Array.from(document.querySelectorAll('#selNovoLocalizador option'));
         const searchComarca = parsedOrigem.comarca.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-        
+
         for (let opt of options) {
             const txt = opt.text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
             if (txt.includes("NB/JC") && txt.includes(searchComarca)) {
                 if (parsedOrigem.vara === "ÚNICA") {
                     if (!txt.match(/\d+VC/)) return opt;
                 } else {
-                    if (txt.includes(parsedOrigem.vara)) return opt; 
+                    if (txt.includes(parsedOrigem.vara)) return opt;
                 }
             }
         }
@@ -1054,19 +908,19 @@
         }
 
         const linhas = getLinhasProcessos();
-        const grupos = {}; 
+        const grupos = {};
         let totalValidos = 0;
 
         linhas.forEach(linha => {
             const tdOrigem = linha.querySelector('.eproc-col-origem-nucleo');
             const tds = Array.from(linha.querySelectorAll('td'));
-            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6]; 
-            
+            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6];
+
             if (!tdOrigem || !tdLocalizadores) return;
-            
-            const textoOrigem = tdOrigem.innerText.trim();
-            const textoLocsAtual = tdLocalizadores.innerText.toUpperCase().replace(/[^A-Z0-9]/g, ''); 
-            
+
+            const textoOrigem = tdOrigem.textContent.trim();
+            const textoLocsAtual = tdLocalizadores.textContent.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
             if(textoOrigem === "..." || textoOrigem === "-") return;
 
             const parsed = parseOrigem(textoOrigem);
@@ -1074,7 +928,7 @@
 
             if (optTarget && optTarget.value !== "null") {
                 const targetNameClean = optTarget.text.split('-')[1]?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || optTarget.text.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                
+
                 if (!textoLocsAtual.includes(targetNameClean)) {
                     const locNameDisplay = optTarget.text;
                     if (!grupos[optTarget.value]) grupos[optTarget.value] = { nome: locNameDisplay, linhas:[] };
@@ -1107,22 +961,22 @@
 
     function abrirAssistenteDistribuicaoDigitos() {
         const linhas = getLinhasProcessos();
-        const processosPendentes =[]; 
+        const processosPendentes =[];
 
         linhas.forEach(linha => {
             const linkProc = linha.querySelector('a[href*="acao=processo_selecionar"]');
             if (!linkProc) return;
-            const matchProc = linkProc.innerText.match(/(\d)-/);
+            const matchProc = linkProc.textContent.match(/(\d)-/);
             if (!matchProc) return;
             const digitoProcesso = matchProc[1];
 
             const tds = Array.from(linha.querySelectorAll('td'));
-            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6]; 
+            const tdLocalizadores = tds.find(td => td.querySelector('a[href*="localizador_orgao_tooltip"]')) || tds[6];
             if (!tdLocalizadores) return;
-            
-            const locsText = tdLocalizadores.innerText.toUpperCase();
+
+            const locsText = tdLocalizadores.textContent.toUpperCase();
             const regexLocCorreto = new RegExp(`D[IÍ]GITO\\s*${digitoProcesso}`, 'i');
-            
+
             if (!regexLocCorreto.test(locsText)) {
                 const optTarget = findLocalizadorDigito(digitoProcesso);
                 if (optTarget && optTarget.value !== "null") {
@@ -1147,7 +1001,7 @@
     function mostrarSelecaoDeDigito(processosPendentes) {
         const overlay = document.createElement('div');
         overlay.className = 'eproc-modal-overlay';
-        
+
         let botoesDigitos = '';
         for (let i = 0; i <= 9; i++) {
             const count = processosPendentes.filter(p => p.digito === String(i)).length;
@@ -1171,10 +1025,10 @@
 
         window.processarDistribuicaoDigito = function(filtroDigito) {
             document.body.removeChild(overlay);
-            
-            const filtrados = filtroDigito === 'todos' 
-                ? processosPendentes 
-                : processosPendentes.filter(p => p.digito === filtroDigito);
+
+            const filtrados = filtroDigito === 'todos'
+                ? processosPendentes
+                : processosPendentes.filter(p => p.digito === String(filtroDigito));
 
             if (filtrados.length === 0) {
                 alert(`Nenhum processo pendente para o dígito ${filtroDigito} nesta página.`);
@@ -1199,26 +1053,46 @@
                     if (legendLoc) legendLoc.click();
                 }
 
-                if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
-                else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
-                
+                // HIJACK & BATCH
+                const originalCheck = window.selecionaCheckLocalizadores;
+                if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+                try {
+                    if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
+                    else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
+                } finally {
+                    if (typeof originalCheck === 'function') {
+                        window.selecionaCheckLocalizadores = originalCheck;
+                        originalCheck();
+                    }
+                }
+
                 document.querySelectorAll('tr[style*="background-color"]').forEach(tr => { tr.style.backgroundColor=''; tr.style.borderLeft=''; });
 
                 requestAnimationFrame(() => {
                     let count = 0;
-                    linhasAlvo.forEach(tr => {
-                        const chk = tr.querySelector('input[type="checkbox"]');
-                        if (chk && !chk.checked) {
-                            chk.click(); 
-                            tr.style.backgroundColor = '#eef8fa';
-                            tr.style.borderLeft = '4px solid #0081c2';
-                            count++;
+                    // HIJACK & BATCH
+                    const innerCheck = window.selecionaCheckLocalizadores;
+                    if (typeof innerCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+                    try {
+                        linhasAlvo.forEach(tr => {
+                            const chk = tr.querySelector('input[type="checkbox"]');
+                            if (chk && !chk.checked) {
+                                chk.click();
+                                tr.style.backgroundColor = '#eef8fa';
+                                tr.style.borderLeft = '4px solid #0081c2';
+                                count++;
+                            }
+                        });
+                    } finally {
+                        if (typeof innerCheck === 'function') {
+                            window.selecionaCheckLocalizadores = innerCheck;
+                            innerCheck();
                         }
-                    });
-                    
+                    }
+
                     document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
                     updateNavVisibility();
-                    
+
                     setTimeout(() => {
                         const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
                         if (btnDesmarcar) {
@@ -1259,7 +1133,7 @@
 
         const overlay = document.createElement('div');
         overlay.className = 'eproc-modal-overlay';
-        
+
         let htmlBotoes = '';
         Object.keys(grupos).forEach(val => {
             const grp = grupos[val];
@@ -1286,26 +1160,46 @@
         window.aplicarDistribuicaoGrupoGenerico = function(targetValue) {
             const linhasAlvo = grupos[targetValue].linhas;
 
-            if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
-            else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
-            
+            // HIJACK & BATCH
+            const originalCheck = window.selecionaCheckLocalizadores;
+            if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+            try {
+                if (typeof infraSelecionarTodos === 'function') infraSelecionarTodos(false);
+                else document.querySelectorAll('table tr input[type="checkbox"]:checked').forEach(c => c.click());
+            } finally {
+                if (typeof originalCheck === 'function') {
+                    window.selecionaCheckLocalizadores = originalCheck;
+                    originalCheck();
+                }
+            }
+
             document.querySelectorAll('tr[style*="background-color"]').forEach(tr => { tr.style.backgroundColor=''; tr.style.borderLeft=''; });
 
             requestAnimationFrame(() => {
                 let count = 0;
-                linhasAlvo.forEach(tr => {
-                    const chk = tr.querySelector('input[type="checkbox"]');
-                    if (chk && !chk.checked) {
-                        chk.click(); 
-                        tr.style.backgroundColor = '#eef8fa';
-                        tr.style.borderLeft = '4px solid #0081c2';
-                        count++;
+                // HIJACK & BATCH
+                const innerCheck = window.selecionaCheckLocalizadores;
+                if (typeof innerCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+                try {
+                    linhasAlvo.forEach(tr => {
+                        const chk = tr.querySelector('input[type="checkbox"]');
+                        if (chk && !chk.checked) {
+                            chk.click();
+                            tr.style.backgroundColor = '#eef8fa';
+                            tr.style.borderLeft = '4px solid #0081c2';
+                            count++;
+                        }
+                    });
+                } finally {
+                    if (typeof innerCheck === 'function') {
+                        window.selecionaCheckLocalizadores = innerCheck;
+                        innerCheck();
                     }
-                });
-                
+                }
+
                 document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
                 updateNavVisibility();
-                
+
                 setTimeout(() => {
                     const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
                     if (btnDesmarcar) {
@@ -1449,7 +1343,7 @@
 
             if (modoRecebimento) {
                 const td = linha.querySelector('.eproc-col-data-nucleo');
-                if (td) dataLinha = obterDataSegura(td.innerText.trim());
+                if (td) dataLinha = obterDataSegura(td.textContent.trim());
             } else if (modoAutuacao) {
                 const tabela = linha.closest('table');
                 if (tabela) {
@@ -1457,7 +1351,7 @@
                     const idxAut = headers.findIndex(th => th.textContent.toUpperCase().includes("AUTUAÇÃO"));
 
                     if (idxAut > -1 && linha.cells[idxAut]) {
-                        dataLinha = obterDataSegura(linha.cells[idxAut].innerText.trim());
+                        dataLinha = obterDataSegura(linha.cells[idxAut].textContent.trim());
                     }
                 }
             } else {
@@ -1487,7 +1381,7 @@
 
                 const td = tr.querySelector('.eproc-col-data-nucleo');
                 if (!td) { pendentes++; return; }
-                const texto = td.innerText.trim();
+                const texto = td.textContent.trim();
                 const temSpinner = td.querySelector('.eproc-spinner');
                 const statusAtivo = tr.getAttribute('data-nucleo-status');
 
@@ -1548,7 +1442,7 @@
 
             linhas.forEach(linha => {
                 const chk = linha.querySelector('input[type="checkbox"]');
-                if (!chk || chk.disabled) return; 
+                if (!chk || chk.disabled) return;
 
                 if (!validarIntervaloData(linha, dtInicio, dtFim)) {
                      updates.push({ tr: linha, chk: chk, select: false });
@@ -1583,17 +1477,27 @@
             });
 
             requestAnimationFrame(() => {
-                updates.forEach(up => {
-                    if (up.select) {
-                        if (!up.chk.checked) up.chk.click();
-                        up.tr.style.backgroundColor = '#eef8fa';
-                        up.tr.style.borderLeft = '4px solid #0081c2';
-                    } else {
-                        if (up.chk.checked) up.chk.click();
-                        up.tr.style.backgroundColor = '';
-                        up.tr.style.borderLeft = '';
+                // HIJACK & BATCH
+                const originalCheck = window.selecionaCheckLocalizadores;
+                if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
+                try {
+                    updates.forEach(up => {
+                        if (up.select) {
+                            if (!up.chk.checked) up.chk.click();
+                            up.tr.style.backgroundColor = '#eef8fa';
+                            up.tr.style.borderLeft = '4px solid #0081c2';
+                        } else {
+                            if (up.chk.checked) up.chk.click();
+                            up.tr.style.backgroundColor = '';
+                            up.tr.style.borderLeft = '';
+                        }
+                    });
+                } finally {
+                    if (typeof originalCheck === 'function') {
+                        window.selecionaCheckLocalizadores = originalCheck;
+                        originalCheck();
                     }
-                });
+                }
 
                 document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
                 updateNavVisibility();
@@ -1606,6 +1510,9 @@
         }
 
         function limparSelecao() {
+            // HIJACK & BATCH
+            const originalCheck = window.selecionaCheckLocalizadores;
+            if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
             try {
                 if (typeof infraSelecionarTodos === 'function') {
                     infraSelecionarTodos(false);
@@ -1619,6 +1526,11 @@
                 const checkboxes = document.querySelectorAll('table tr input[type="checkbox"]:checked');
                 for (let i = 0; i < checkboxes.length; i++) {
                     checkboxes[i].click();
+                }
+            } finally {
+                if (typeof originalCheck === 'function') {
+                    window.selecionaCheckLocalizadores = originalCheck;
+                    originalCheck();
                 }
             }
 
@@ -1715,11 +1627,11 @@
 
                 <div class="eproc-row" style="justify-content: space-between;">
                    <div style="display:flex; gap:10px; align-items:center;">
-                        
+
                         <button id="eproc-dist-magica" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Vara de origem" style="margin-right: 5px;">
                             <svg viewBox="0 0 24 24" width="18" height="18"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.41l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.41zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>
                         </button>
-                        
+
                         <button id="eproc-dist-digito" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente de Dígitos" style="margin-right: 15px;">
                             <svg viewBox="0 0 24 24" width="18" height="18">
                                 <text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle" font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="currentColor">#</text>
@@ -1823,7 +1735,7 @@
                     if (tr.querySelector('th')) return;
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     if (linkProc) {
-                        const numProc = linkProc.innerText.trim();
+                        const numProc = linkProc.textContent.trim();
                         const hrefProc = linkProc.href;
                         html += `<li><a href="${hrefProc}">${numProc}</a></li>`;
                         texto += `${numProc}\n`;
@@ -1844,9 +1756,9 @@
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     const tdData = tr.querySelector('.eproc-col-data-nucleo');
                     if (linkProc && tdData) {
-                        const numProc = linkProc.innerText.trim();
+                        const numProc = linkProc.textContent.trim();
                         const hrefProc = linkProc.href;
-                        const dataTexto = tdData.innerText.trim();
+                        const dataTexto = tdData.textContent.trim();
                         const dataObj = obterDataSegura(dataTexto);
                         if (dataObj) {
                             dataObj.setHours(0,0,0,0);
@@ -1963,7 +1875,7 @@
                 protegerServidorEproc();
                 melhorarGerenciarLocalizadores(); // Intercepta "Alterar Localizador" para permitir apenas remoções
                 setTimeout(iniciarProcessamentoDados, 100); // Adia o peso do processamento de rede
-                
+
                 // Mutações para acender as setas de navegação quando clicar nativamente também
                 const tab = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
                 if (tab) {
