@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.7
+// @version      45.9
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -43,6 +43,12 @@
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return[];
         return Array.from(tabela.rows).filter(tr => !tr.querySelector('th') && tr.closest('table') === tabela);
+    }
+
+    // UTILITÁRIO DE NORMALIZAÇÃO DE TEXTO
+    function removerAcentos(str) {
+        if (!str) return "";
+        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     }
 
     // MAPA DE COMARCAS E SIGLAS (DISTRIBUIÇÃO INTELIGENTE)
@@ -138,7 +144,7 @@
         #eproc-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #4cae4c; color: white; padding: 10px 25px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-weight: bold; font-size: 14px; z-index: 99999; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         #eproc-toast.show { opacity: 1; }
 
-        #eproc-seletor { border: 1px solid #ccc !important; border-radius: 6px; padding: 15px; margin: 10px auto 20px auto; width: 99%; background-color: #fff; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background-color 0.3s, border-color 0.3s; position: relative; }
+        #eproc-seletor { border: 1px solid #ccc !important; border-radius: 6px; padding: 15px; margin: 10px 0 20px 0; width: 100%; box-sizing: border-box; background-color: #fff; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background-color 0.3s, border-color 0.3s; position: relative; }
         .eproc-legend { font-size: 1.2em; font-weight: bold; color: #000; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: block; width: 100%; }
         .eproc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
         .eproc-form-control { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; border-radius: 4px; color: #333; }
@@ -198,6 +204,12 @@
         .eproc-nav-btn { width: 28px; height: 28px; border-radius: 50%; background-color: #fff; border: 1px solid #ccc; box-shadow: 0 2px 4px rgba(0,0,0,0.1); cursor: pointer; display: flex; justify-content: center; align-items: center; color: #666; outline: none; }
         .eproc-nav-btn:hover { background-color: #f8f8f8; color: #333; }
         .eproc-nav-btn svg { fill: currentColor; width: 18px; height: 18px; }
+
+        .eproc-toggle-btn { display: inline-flex; align-items: center; background: #eee; border: 1px solid #ccc; border-radius: 14px; cursor: pointer; padding: 2px; position: relative; width: 64px; height: 28px; user-select: none; box-sizing: border-box; }
+        .eproc-toggle-btn span { z-index: 1; flex: 1; text-align: center; font-size: 11px; font-weight: bold; color: #777; transition: color 0.3s; pointer-events: none; }
+        .eproc-toggle-btn span.active { color: #fff; }
+        .eproc-toggle-slider { position: absolute; top: 1px; left: 1px; width: 30px; height: 24px; background: #0081c2; border-radius: 12px; transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); box-sizing: border-box; }
+        .eproc-toggle-btn.mode-ou .eproc-toggle-slider { transform: translateX(30px); background: #f39c12; }
     `;
     document.head.appendChild(style);
 
@@ -409,7 +421,7 @@
                 const celulaOrigem = celula.nextElementSibling;
                 if(celulaOrigem && celulaOrigem.classList.contains('eproc-col-origem-nucleo')) {
                     DomBatcher.add(celulaOrigem, `<span title="${origemStr}">${origemStr}</span>`, null, null);
-                    linha.setAttribute('data-idx-text', (linha.getAttribute('data-idx-text') || "") + " " + origemStr.toUpperCase());
+                    linha.setAttribute('data-idx-text', (linha.getAttribute('data-idx-text') || "") + " " + removerAcentos(origemStr.toUpperCase()));
                 }
             }
         },
@@ -602,7 +614,7 @@
         let temParalisado = false;
 
         const processRow = (tr) => {
-            if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', tr.textContent.toUpperCase());
+            if (!tr.hasAttribute('data-idx-text')) tr.setAttribute('data-idx-text', removerAcentos(tr.textContent.toUpperCase()));
             if (verificarParalisacao(tr, idxEvento)) temParalisado = true;
 
             let tdDate = tr.querySelector('.eproc-col-data-nucleo');
@@ -630,7 +642,7 @@
                             tdDate.innerHTML = `<span style="color:#000;">${dataStr}</span>`;
                             tdOrigem.innerHTML = `<span title="${origemStr}">${origemStr}</span>`;
                             tr.setAttribute('data-nucleo-carregado', 'true');
-                            tr.setAttribute('data-idx-text', (tr.getAttribute('data-idx-text') || "") + " " + origemStr.toUpperCase());
+                            tr.setAttribute('data-idx-text', (tr.getAttribute('data-idx-text') || "") + " " + removerAcentos(origemStr.toUpperCase()));
                         }
                     } else {
                         filaDeProcessamento.add(link.href, tdDate, tr, numProc);
@@ -819,8 +831,16 @@
     }
 
     function navigateSelection(direction) {
-        const checkboxes = getLinhasProcessos().map(tr => tr.querySelector('input[type="checkbox"]:checked')).filter(Boolean);
-        if (checkboxes.length === 0) return;
+        // Busca todos os checkboxes marcados em linhas da tabela (ignora cabeçalhos TH)
+        const checkboxes = Array.from(document.querySelectorAll('tr[class^="infraTr"] input[type="checkbox"]:checked')).filter(chk => {
+            const tr = chk.closest('tr');
+            return tr && !tr.querySelector('th');
+        });
+
+        if (checkboxes.length === 0) {
+            currentNavIndex = -1;
+            return;
+        }
 
         if (direction === 'down') {
             currentNavIndex++;
@@ -836,14 +856,26 @@
             }
         }
 
+        // Prevenção de falhas (out of bounds array)
+        if (currentNavIndex >= checkboxes.length) currentNavIndex = 0;
+        if (currentNavIndex < 0) currentNavIndex = checkboxes.length - 1;
+
         const tr = checkboxes[currentNavIndex].closest('tr');
         if (tr) {
             tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            const originalBg = tr.style.backgroundColor;
+
+            if (tr.dataset.originalBg === undefined) {
+                tr.dataset.originalBg = tr.style.backgroundColor || '';
+            }
+
             tr.style.transition = 'background-color 0.3s';
             tr.style.backgroundColor = '#ffeeba';
+
             setTimeout(() => {
-                tr.style.backgroundColor = originalBg;
+                if (tr.dataset.originalBg !== undefined) {
+                    tr.style.backgroundColor = tr.dataset.originalBg;
+                    delete tr.dataset.originalBg;
+                }
             }, 800);
         }
     }
@@ -1299,6 +1331,7 @@
         let estadoFiltros =[];
         let modoReordenacao = false;
         let modoExclusaoAtivo = false;
+        let modoBusca = 'E';
 
         function toggleModoExclusao(forcar) {
             if (forcar !== undefined) modoExclusaoAtivo = forcar;
@@ -1489,11 +1522,14 @@
             const dtInicio = inicioVal ? new Date(inicioVal + 'T00:00:00') : null;
             const dtFim = fimVal ? new Date(fimVal + 'T00:00:00') : null;
 
-            const positivos = estadoFiltros.filter(f => !f.negativo).map(f => ({...f, valorUpper: f.valor.toUpperCase()}));
-            const negativos = estadoFiltros.filter(f => f.negativo).map(f => ({...f, valorUpper: f.valor.toUpperCase()}));
+            const positivos = estadoFiltros.filter(f => !f.negativo).map(f => ({...f, valorUpper: removerAcentos(f.valor.toUpperCase())}));
+            const negativos = estadoFiltros.filter(f => f.negativo).map(f => ({...f, valorUpper: removerAcentos(f.valor.toUpperCase())}));
 
-            const temPositivos = positivos.length > 0;
-            const temNegativos = negativos.length > 0;
+            const positivosTextStatus = positivos.filter(f => f.tipo !== 'data');
+            const temPositivosTextStatus = positivosTextStatus.length > 0;
+
+            const negativosTextStatus = negativos.filter(f => f.tipo !== 'data');
+            const temNegativosTextStatus = negativosTextStatus.length > 0;
 
             const updates =[];
             const linhas = getLinhasProcessos();
@@ -1508,45 +1544,45 @@
                      return;
                 }
 
-                let passouTodosFiltros = true;
+                const linhaTexto = removerAcentos(linha.getAttribute('data-idx-text') || "");
+                let passouPositivos = true;
 
-                if (temPositivos) {
-                    const linhaTexto = linha.getAttribute('data-idx-text') || "";
-                    for (const filtro of positivos) {
-                        if (filtro.tipo === 'status') {
-                            if (filtro.valor === '__PARALISADO__' && !linha.classList.contains('tr-paralisado')) {
-                                passouTodosFiltros = false; break;
+                if (temPositivosTextStatus) {
+                    if (modoBusca === 'E') {
+                        for (const filtro of positivosTextStatus) {
+                            if (filtro.tipo === 'status') {
+                                if (filtro.valor === '__PARALISADO__' && !linha.classList.contains('tr-paralisado')) { passouPositivos = false; break; }
+                                if (filtro.valor === '__NOVO_PARALISADO__' && !linha.classList.contains('tr-novo-paralisado')) { passouPositivos = false; break; }
+                            } else {
+                                if (!linhaTexto.includes(filtro.valorUpper)) { passouPositivos = false; break; }
                             }
-                            if (filtro.valor === '__NOVO_PARALISADO__' && !linha.classList.contains('tr-novo-paralisado')) {
-                                passouTodosFiltros = false; break;
-                            }
-                        } else if (filtro.tipo !== 'data') {
-                            if (!linhaTexto.includes(filtro.valorUpper)) {
-                                passouTodosFiltros = false; break;
+                        }
+                    } else {
+                        passouPositivos = false;
+                        for (const filtro of positivosTextStatus) {
+                            if (filtro.tipo === 'status') {
+                                if (filtro.valor === '__PARALISADO__' && linha.classList.contains('tr-paralisado')) { passouPositivos = true; break; }
+                                if (filtro.valor === '__NOVO_PARALISADO__' && linha.classList.contains('tr-novo-paralisado')) { passouPositivos = true; break; }
+                            } else {
+                                if (linhaTexto.includes(filtro.valorUpper)) { passouPositivos = true; break; }
                             }
                         }
                     }
                 }
 
-                if (passouTodosFiltros && temNegativos) {
-                    const linhaTexto = linha.getAttribute('data-idx-text') || "";
-                    for (const filtro of negativos) {
+                let passouNegativos = true;
+                if (passouPositivos && temNegativosTextStatus) {
+                    for (const filtro of negativosTextStatus) {
                         if (filtro.tipo === 'status') {
-                            if (filtro.valor === '__PARALISADO__' && linha.classList.contains('tr-paralisado')) {
-                                passouTodosFiltros = false; break;
-                            }
-                            if (filtro.valor === '__NOVO_PARALISADO__' && linha.classList.contains('tr-novo-paralisado')) {
-                                passouTodosFiltros = false; break;
-                            }
-                        } else if (filtro.tipo !== 'data') {
-                            if (linhaTexto.includes(filtro.valorUpper)) {
-                                passouTodosFiltros = false; break;
-                            }
+                            if (filtro.valor === '__PARALISADO__' && linha.classList.contains('tr-paralisado')) { passouNegativos = false; break; }
+                            if (filtro.valor === '__NOVO_PARALISADO__' && linha.classList.contains('tr-novo-paralisado')) { passouNegativos = false; break; }
+                        } else {
+                            if (linhaTexto.includes(filtro.valorUpper)) { passouNegativos = false; break; }
                         }
                     }
                 }
 
-                if (passouTodosFiltros) {
+                if (passouPositivos && passouNegativos) {
                     updates.push({ tr: linha, chk: chk, select: true });
                     count++;
                 } else {
@@ -1699,7 +1735,7 @@
                 // Tenta puxar a nova chave. Se não existir, resgata a antiga "gaveta" v17
                 let strOrdem = localStorage.getItem(LS_KEY_ORDEM) || localStorage.getItem("eproc_ordem_botoes_v17");
 
-                botoesPersonalizados = strBotoes ? JSON.parse(strBotoes) : [];
+                botoesPersonalizados = strBotoes ? JSON.parse(strBotoes) :[];
                 ordemBotoes = strOrdem ? JSON.parse(strOrdem) :[];
 
                 // Se precisou usar a gaveta antiga, já converte e salva na gaveta nova permanente
@@ -1707,7 +1743,7 @@
                     localStorage.setItem(LS_KEY_ORDEM, JSON.stringify(ordemBotoes));
                 }
                 } catch(e) {
-                botoesPersonalizados = [];
+                botoesPersonalizados =[];
                 ordemBotoes =[];
             }
             const div = document.createElement('div');
@@ -1744,8 +1780,13 @@
                     <button id="eproc-limpar" type="button" class="eproc-btn eproc-btn-danger">Limpar Tudo</button>
                 </div>
                 <div id="eproc-botoes-container" class="eproc-row" style="border-top: 1px solid #eee; padding-top: 10px;"></div>
-                <div class="eproc-row" style="flex-wrap: nowrap;">
-                    <input type="text" id="eproc-termo" class="eproc-form-control" placeholder="Pesquisar..." style="flex-grow:1;">
+                <div class="eproc-row" style="flex-wrap: nowrap; align-items: center;">
+                    <input type="text" id="eproc-termo" class="eproc-form-control" placeholder="Pesquisar..." style="flex-grow:1; min-width: 50px;">
+                    <div id="eproc-toggle-logica" class="eproc-toggle-btn" title="Alternar entre lógica E / OU" style="margin-left:5px;">
+                        <div class="eproc-toggle-slider"></div>
+                        <span class="active" id="eproc-toggle-e">E</span>
+                        <span id="eproc-toggle-ou">OU</span>
+                    </div>
                     <button id="eproc-copy-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Copiar Selecionados" style="margin-left:5px;">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                     </button>
@@ -1792,6 +1833,22 @@
             document.getElementById('eproc-dist-digito').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicaoDigitos(); };
 
             document.getElementById('eproc-modo-exclusao').onclick = (e) => { e.preventDefault(); toggleModoExclusao(); };
+
+            document.getElementById('eproc-toggle-logica').onclick = function(e) {
+                e.preventDefault();
+                if (this.classList.contains('mode-ou')) {
+                    this.classList.remove('mode-ou');
+                    document.getElementById('eproc-toggle-e').classList.add('active');
+                    document.getElementById('eproc-toggle-ou').classList.remove('active');
+                    modoBusca = 'E';
+                } else {
+                    this.classList.add('mode-ou');
+                    document.getElementById('eproc-toggle-e').classList.remove('active');
+                    document.getElementById('eproc-toggle-ou').classList.add('active');
+                    modoBusca = 'OU';
+                }
+                aplicarFiltros();
+            };
 
             document.getElementById('eproc-termo').addEventListener('keypress', (e) => {
                 if(e.key === 'Enter') {
