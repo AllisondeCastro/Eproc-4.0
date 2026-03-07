@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.6
+// @version      45.7
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -28,12 +28,12 @@
     const EXPIRATION_DAYS = 150;
 
     const LS_KEY_BOTOES = "eproc_botoes_personalizados";
-    const LS_KEY_ORDEM = "eproc_ordem_botoes_v17";
+    const LS_KEY_ORDEM = "eproc_ordem_botoes";
     const LS_KEY_PAGINACAO = "eproc_paginacao_pref";
 
-    const BUCKET_CAPACITY = 20;
+    const BUCKET_CAPACITY = 25;
     const TOKENS_PER_SECOND = 5;
-    const MAX_CONCURRENCY = 20;
+    const MAX_CONCURRENCY = 25;
 
     const paralisadosNovosSessao = new Set();
     const regexData = /^\d{2}\/\d{2}\/\d{4}$/; // Expressão regular em cache para otimização
@@ -138,7 +138,7 @@
         #eproc-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #4cae4c; color: white; padding: 10px 25px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-weight: bold; font-size: 14px; z-index: 99999; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
         #eproc-toast.show { opacity: 1; }
 
-        #eproc-seletor { border: 1px solid #ccc !important; border-radius: 6px; padding: 15px; margin: 10px auto 20px auto; width: 99%; background-color: #fff; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        #eproc-seletor { border: 1px solid #ccc !important; border-radius: 6px; padding: 15px; margin: 10px auto 20px auto; width: 99%; background-color: #fff; font-family: Arial, Helvetica, sans-serif; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: background-color 0.3s, border-color 0.3s; position: relative; }
         .eproc-legend { font-size: 1.2em; font-weight: bold; color: #000; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; display: block; width: 100%; }
         .eproc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
         .eproc-form-control { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; border-radius: 4px; color: #333; }
@@ -157,10 +157,12 @@
 
         #eproc-criterios-lista { display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; align-items: center; }
         .eproc-tag { background-color: #d9edf7; color: #31708f; border: 1px solid #bce8f1; border-radius: 14px; padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px; font-weight: 600; cursor: default; }
-        .eproc-tag-close { cursor: pointer; font-weight: bold; color: #a94442; font-size: 14px; margin-left: 2px; }
+        .eproc-tag-negativo { background-color: #f2dede !important; color: #a94442 !important; border-color: #ebccd1 !important; }
+        .eproc-tag-close { cursor: pointer; font-weight: bold; color: #d9534f !important; font-size: 14px; margin-left: 2px; opacity: 0.7; }
+        .eproc-tag-close:hover { opacity: 1; }
 
-        #eproc-feedback { margin-top: 10px; padding: 12px; border-radius: 4px; font-weight: bold; display: none; text-align: center; font-size: 13px; background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; animation: pulse-alert 1.5s infinite; }
-        @keyframes pulse-alert { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
+        #eproc-feedback { margin-top: 10px; border-radius: 4px; font-weight: bold; display: none; text-align: center; font-size: 13px; border: 1px solid #ffeeba; position: relative; overflow: hidden; background-color: transparent; color: #856404; }
+
         #eproc-contador { text-align: right; color: #777; font-size: 13px; margin-top: 5px; }
 
         .eproc-btn-group { display: inline-flex; vertical-align: middle; transition: transform 0.2s; }
@@ -701,6 +703,21 @@
         }
     }
 
+    function executarSelecao(tipo) {
+        if (window.eprocAddFiltro) {
+            const excl = window.eprocModoExclusaoAtivo ? window.eprocModoExclusaoAtivo() : false;
+            if (tipo === 'todos') {
+                window.eprocAddFiltro('status', '__PARALISADO__', 'Paralisados', excl);
+            } else {
+                window.eprocAddFiltro('status', '__NOVO_PARALISADO__', 'Novos Paralisados', excl);
+            }
+            window.eprocAplicarFiltros();
+            if (excl && window.eprocToggleModoExclusao) window.eprocToggleModoExclusao(false);
+        } else {
+            alert('Erro: Filtros não inicializados.');
+        }
+    }
+
     function criarBotoesAlerta(alertaDiv, idxEvento, totalParalisados, totalNovos) {
         const btnRel = document.createElement('button'); btnRel.id = 'eproc-relatorio-btn'; btnRel.textContent = "Gerar Relatório"; btnRel.type = "button"; alertaDiv.appendChild(btnRel);
         btnRel.onclick = (e) => {
@@ -768,7 +785,7 @@
         const btnSel = document.createElement('button'); btnSel.id = 'eproc-selecionar-paralisados-btn'; btnSel.textContent = "Selecionar Paralisados"; btnSel.type = "button"; alertaDiv.appendChild(btnSel);
         btnSel.onclick = (e) => {
             e.preventDefault(); e.stopPropagation();
-            if (totalNovos === 0) { executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado'))); return; }
+            if (totalNovos === 0) { executarSelecao('todos'); return; }
             const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
             overlay.innerHTML = `<div class="eproc-modal-content" style="width:320px;text-align:center;"><div class="eproc-modal-title">Selecionar Paralisados</div>
                 <button id="btn-sel-todos" class="eproc-btn" style="width:100%;margin-bottom:10px;font-weight:bold;">Todos os Paralisados (${totalParalisados})</button>
@@ -777,32 +794,9 @@
             document.body.appendChild(overlay);
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
             document.getElementById('btn-sel-cancel').onclick = fechar;
-            document.getElementById('btn-sel-todos').onclick = () => { fechar(); executarSelecao(Array.from(document.querySelectorAll('tr.tr-paralisado'))); };
-            document.getElementById('btn-sel-novos').onclick = () => { fechar(); executarSelecao(Array.from(document.querySelectorAll('tr.tr-novo-paralisado'))); };
+            document.getElementById('btn-sel-todos').onclick = () => { fechar(); executarSelecao('todos'); };
+            document.getElementById('btn-sel-novos').onclick = () => { fechar(); executarSelecao('novos'); };
         };
-
-        function executarSelecao(paralisados) {
-            if (!paralisados.length) { alert('Nenhum processo correspondente identificado na tela ainda.'); return; }
-            requestAnimationFrame(() => {
-                let count = 0;
-                // HIJACK & BATCH
-                const originalCheck = window.selecionaCheckLocalizadores;
-                if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
-                try {
-                    paralisados.forEach(tr => {
-                        const chk = tr.querySelector('input[type="checkbox"]');
-                        if (chk) { if(!chk.checked) chk.click(); tr.style.backgroundColor = '#eef8fa'; tr.style.borderLeft = '4px solid #0081c2'; count++; }
-                    });
-                } finally {
-                    if (typeof originalCheck === 'function') {
-                        window.selecionaCheckLocalizadores = originalCheck;
-                        originalCheck();
-                    }
-                }
-                document.getElementById('eproc-contador').textContent = `Itens selecionados: ${document.querySelectorAll('table tr input[type="checkbox"]:checked').length}`;
-                updateNavVisibility();
-            });
-        }
     }
 
     // ===========================================================================================
@@ -867,7 +861,7 @@
         if (matchSigla && COMARCAS_MAP[matchSigla[1]]) {
             comarca = COMARCAS_MAP[matchSigla[1]];
         } else {
-            for (const [sigla, nome] of Object.entries(COMARCAS_MAP)) {
+            for (const[sigla, nome] of Object.entries(COMARCAS_MAP)) {
                 if (textoOrigem.toUpperCase().includes(nome.toUpperCase())) { comarca = nome; break; }
             }
         }
@@ -1231,6 +1225,22 @@
         document.body.appendChild(overlay);
     }
 
+    function desmarcarLocalizadoresAtuais() {
+        const btnDesmarcar = document.getElementById('lblLocDesDesmarcarTodos');
+        if (btnDesmarcar) {
+            btnDesmarcar.click();
+        } else {
+            const selectDesativarLoc = document.getElementById('selLocalizadorDesativar');
+            if (selectDesativarLoc) {
+                Array.from(selectDesativarLoc.options).forEach(opt => opt.selected = false);
+                selectDesativarLoc.dispatchEvent(new Event('change'));
+                if(typeof $ !== 'undefined' && $(selectDesativarLoc).hasClass('selectpicker')){
+                    $(selectDesativarLoc).selectpicker('refresh');
+                }
+            }
+        }
+    }
+
     function melhorarGerenciarLocalizadores() {
         if (typeof window.alterarLocalizador === 'function') {
             const originalAlterarLocalizador = window.alterarLocalizador;
@@ -1266,6 +1276,15 @@
                 }
             };
         }
+
+        if (typeof window.selecionaCheckLocalizadores === 'function' && !window.selecionaCheckLocalizadores.eprocHijacked) {
+            const origSel = window.selecionaCheckLocalizadores;
+            window.selecionaCheckLocalizadores = function() {
+                origSel.apply(this, arguments);
+                desmarcarLocalizadoresAtuais();
+            };
+            window.selecionaCheckLocalizadores.eprocHijacked = true;
+        }
     }
 
     if (location.href.includes('acao=localizador_processos_lista')) {
@@ -1279,6 +1298,37 @@
         let ordemBotoes =[];
         let estadoFiltros =[];
         let modoReordenacao = false;
+        let modoExclusaoAtivo = false;
+
+        function toggleModoExclusao(forcar) {
+            if (forcar !== undefined) modoExclusaoAtivo = forcar;
+            else modoExclusaoAtivo = !modoExclusaoAtivo;
+
+            const seletor = document.getElementById('eproc-seletor');
+            const avisoId = 'eproc-aviso-exclusao';
+            let aviso = document.getElementById(avisoId);
+
+            if (seletor) {
+                if (modoExclusaoAtivo) {
+                    seletor.style.backgroundColor = '#fdf2f2';
+                    seletor.style.borderColor = '#d9534f';
+                    if (!aviso) {
+                        aviso = document.createElement('div');
+                        aviso.id = avisoId;
+                        aviso.style = 'position: absolute; top: 15px; left: 50%; transform: translateX(-50%); color: #d9534f; font-weight: normal; font-size: 12px; opacity: 0.6; pointer-events: none;';
+                        aviso.textContent = 'Os novos parâmetros funcionarão como filtros negativos de busca';
+                        seletor.appendChild(aviso);
+                    }
+                } else {
+                    seletor.style.backgroundColor = '#fff';
+                    seletor.style.borderColor = '#ccc';
+                    if (aviso) aviso.remove();
+                }
+            }
+        }
+
+        window.eprocToggleModoExclusao = toggleModoExclusao;
+        window.eprocModoExclusaoAtivo = () => modoExclusaoAtivo;
 
         function salvarBotoesPersonalizados() {
             localStorage.setItem(LS_KEY_BOTOES, JSON.stringify(botoesPersonalizados));
@@ -1337,8 +1387,11 @@
         function validarIntervaloData(linha, dtInicio, dtFim) {
             if (!dtInicio && !dtFim) return true;
 
-            const modoRecebimento = document.getElementById('eproc-radio-recebimento').checked;
-            const modoAutuacao = document.getElementById('eproc-radio-autuacao').checked;
+            const radioRecebimento = document.getElementById('eproc-radio-recebimento');
+            const modoRecebimento = radioRecebimento ? radioRecebimento.checked : false;
+            const radioAutuacao = document.getElementById('eproc-radio-autuacao');
+            const modoAutuacao = radioAutuacao ? radioAutuacao.checked : false;
+
             let dataLinha = null;
 
             if (modoRecebimento) {
@@ -1372,6 +1425,7 @@
 
         function verificarPendenciasReais() {
             let pendentes = 0;
+            let totalValidos = 0;
             const linhas = getLinhasProcessos();
 
             linhas.forEach(tr => {
@@ -1379,6 +1433,7 @@
                 const temLink = tr.querySelector('a[href*="acao=processo_selecionar"]');
                 if (!temCheckbox && !temLink) return;
 
+                totalValidos++;
                 const td = tr.querySelector('.eproc-col-data-nucleo');
                 if (!td) { pendentes++; return; }
                 const texto = td.textContent.trim();
@@ -1389,24 +1444,28 @@
                     pendentes++;
                 }
             });
-            return pendentes;
+            return { pendentes, total: totalValidos };
         }
 
         function caoDeGuardaEAplicar(callbackAcao) {
             const fb = document.getElementById('eproc-feedback');
-            if (!document.getElementById('eproc-radio-recebimento').checked) {
+            const radio = document.getElementById('eproc-radio-recebimento');
+            if (!radio || !radio.checked) {
                 fb.style.display = 'none';
                 callbackAcao();
                 return;
             }
             function cicloMonitoramento() {
-                const pendentes = verificarPendenciasReais();
-                if (pendentes > 0) {
+                const stats = verificarPendenciasReais();
+                if (stats.pendentes > 0) {
                     fb.style.display = 'block';
-                    fb.style.backgroundColor = '#fff3cd';
-                    fb.style.color = '#856404';
-                    fb.style.borderColor = '#ffeeba';
-                    fb.innerHTML = `⚠️ Aguarde o rastreamento das datas de recebimento...<br>Processos restantes: <b>${pendentes}</b>`;
+                    const progresso = stats.total > 0 ? ((stats.total - stats.pendentes) / stats.total) * 100 : 0;
+                    fb.innerHTML = `
+                        <div style="position:absolute; top:0; left:0; height:100%; width:${progresso}%; background-color:#fff3cd; z-index:0; transition: width 0.3s ease;"></div>
+                        <div style="position:relative; z-index:1; padding:12px;">
+                            ⚠️ Aguarde o rastreamento das datas de recebimento...<br>Processos restantes: <b>${stats.pendentes}</b>
+                        </div>
+                    `;
                     setTimeout(cicloMonitoramento, 1000);
                 } else {
                     fb.style.display = 'none';
@@ -1430,14 +1489,14 @@
             const dtInicio = inicioVal ? new Date(inicioVal + 'T00:00:00') : null;
             const dtFim = fimVal ? new Date(fimVal + 'T00:00:00') : null;
 
-            const filtrosOtimizados = estadoFiltros.map(f => ({
-                ...f,
-                valorUpper: f.valor.toUpperCase()
-            }));
+            const positivos = estadoFiltros.filter(f => !f.negativo).map(f => ({...f, valorUpper: f.valor.toUpperCase()}));
+            const negativos = estadoFiltros.filter(f => f.negativo).map(f => ({...f, valorUpper: f.valor.toUpperCase()}));
+
+            const temPositivos = positivos.length > 0;
+            const temNegativos = negativos.length > 0;
 
             const updates =[];
             const linhas = getLinhasProcessos();
-
             let count = 0;
 
             linhas.forEach(linha => {
@@ -1450,19 +1509,38 @@
                 }
 
                 let passouTodosFiltros = true;
-                if (temFiltros) {
-                    const linhaTexto = linha.getAttribute('data-idx-text') || "";
 
-                    for (const filtro of filtrosOtimizados) {
-                        if (filtro.tipo === 'status' && filtro.valor === '__PARALISADO__') {
-                            if (!linha.classList.contains('tr-paralisado')) {
-                                passouTodosFiltros = false;
-                                break;
+                if (temPositivos) {
+                    const linhaTexto = linha.getAttribute('data-idx-text') || "";
+                    for (const filtro of positivos) {
+                        if (filtro.tipo === 'status') {
+                            if (filtro.valor === '__PARALISADO__' && !linha.classList.contains('tr-paralisado')) {
+                                passouTodosFiltros = false; break;
                             }
-                        } else {
+                            if (filtro.valor === '__NOVO_PARALISADO__' && !linha.classList.contains('tr-novo-paralisado')) {
+                                passouTodosFiltros = false; break;
+                            }
+                        } else if (filtro.tipo !== 'data') {
                             if (!linhaTexto.includes(filtro.valorUpper)) {
-                                passouTodosFiltros = false;
-                                break;
+                                passouTodosFiltros = false; break;
+                            }
+                        }
+                    }
+                }
+
+                if (passouTodosFiltros && temNegativos) {
+                    const linhaTexto = linha.getAttribute('data-idx-text') || "";
+                    for (const filtro of negativos) {
+                        if (filtro.tipo === 'status') {
+                            if (filtro.valor === '__PARALISADO__' && linha.classList.contains('tr-paralisado')) {
+                                passouTodosFiltros = false; break;
+                            }
+                            if (filtro.valor === '__NOVO_PARALISADO__' && linha.classList.contains('tr-novo-paralisado')) {
+                                passouTodosFiltros = false; break;
+                            }
+                        } else if (filtro.tipo !== 'data') {
+                            if (linhaTexto.includes(filtro.valorUpper)) {
+                                passouTodosFiltros = false; break;
                             }
                         }
                     }
@@ -1477,7 +1555,6 @@
             });
 
             requestAnimationFrame(() => {
-                // HIJACK & BATCH
                 const originalCheck = window.selecionaCheckLocalizadores;
                 if (typeof originalCheck === 'function') window.selecionaCheckLocalizadores = function() {};
                 try {
@@ -1504,8 +1581,10 @@
             });
         }
 
+        window.eprocAplicarFiltros = aplicarFiltros;
+
         function selecionar(termo) {
-            addFiltro('texto', termo, termo);
+            addFiltro('texto', termo, termo, false);
             aplicarFiltros();
         }
 
@@ -1550,8 +1629,12 @@
             div.innerHTML = '';
             if(!estadoFiltros.length) { div.innerHTML = '<span style="color:#999;font-style:italic;font-size:11px;">Nenhum filtro</span>'; return; }
             estadoFiltros.forEach(f => {
-                const t = document.createElement('div'); t.className = 'eproc-tag';
-                t.innerHTML = `${f.label} <span class="eproc-tag-close">×</span>`;
+                const t = document.createElement('div');
+                t.className = f.negativo ? 'eproc-tag eproc-tag-negativo' : 'eproc-tag';
+
+                let labelText = f.negativo ? f.label.replace(/"/g, '') : f.label;
+
+                t.innerHTML = `${labelText} <span class="eproc-tag-close">×</span>`;
                 t.querySelector('span').onclick = (e) => {
                     e.preventDefault(); e.stopPropagation();
                     if(f.tipo === 'data') { document.getElementById('eproc-data-inicio').value = ''; document.getElementById('eproc-data-fim').value = ''; }
@@ -1563,12 +1646,14 @@
             });
         }
 
-        function addFiltro(tipo, valor, label) {
-            if(!estadoFiltros.some(f => f.tipo === tipo && f.valor === valor)) {
-                estadoFiltros.push({ id: Date.now(), tipo, valor, label });
+        function addFiltro(tipo, valor, label, negativo = false) {
+            if(!estadoFiltros.some(f => f.tipo === tipo && f.valor === valor && f.negativo === negativo)) {
+                estadoFiltros.push({ id: Date.now(), tipo, valor, label, negativo });
                 atualizarTags();
             }
         }
+
+        window.eprocAddFiltro = addFiltro;
 
         function abrirModalAdicionarBotao() {
             const overlay = document.createElement('div');
@@ -1610,13 +1695,21 @@
             if(!form || document.getElementById('eproc-seletor')) return;
 
             try {
-                botoesPersonalizados = JSON.parse(localStorage.getItem(LS_KEY_BOTOES)) ||[];
-                ordemBotoes = JSON.parse(localStorage.getItem(LS_KEY_ORDEM)) ||[];
-            } catch(e) {
-                botoesPersonalizados =[];
+                let strBotoes = localStorage.getItem(LS_KEY_BOTOES);
+                // Tenta puxar a nova chave. Se não existir, resgata a antiga "gaveta" v17
+                let strOrdem = localStorage.getItem(LS_KEY_ORDEM) || localStorage.getItem("eproc_ordem_botoes_v17");
+
+                botoesPersonalizados = strBotoes ? JSON.parse(strBotoes) : [];
+                ordemBotoes = strOrdem ? JSON.parse(strOrdem) :[];
+
+                // Se precisou usar a gaveta antiga, já converte e salva na gaveta nova permanente
+                if (ordemBotoes.length > 0 && !localStorage.getItem(LS_KEY_ORDEM)) {
+                    localStorage.setItem(LS_KEY_ORDEM, JSON.stringify(ordemBotoes));
+                }
+                } catch(e) {
+                botoesPersonalizados = [];
                 ordemBotoes =[];
             }
-
             const div = document.createElement('div');
             div.id = 'eproc-seletor';
             div.innerHTML = `
@@ -1653,11 +1746,14 @@
                 <div id="eproc-botoes-container" class="eproc-row" style="border-top: 1px solid #eee; padding-top: 10px;"></div>
                 <div class="eproc-row" style="flex-wrap: nowrap;">
                     <input type="text" id="eproc-termo" class="eproc-form-control" placeholder="Pesquisar..." style="flex-grow:1;">
-                    <button id="eproc-copy-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Copiar Selecionados">
+                    <button id="eproc-copy-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Copiar Selecionados" style="margin-left:5px;">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
                     </button>
                     <button id="eproc-rel-tramitacao-btn" class="eproc-btn eproc-btn-secondary eproc-btn-icon" title="Relatório de Tramitação" style="margin-left:5px;">
                         <svg viewBox="0 0 24 24" width="16" height="16"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                    </button>
+                    <button id="eproc-modo-exclusao" type="button" class="eproc-btn eproc-btn-danger eproc-btn-icon" title="Adicionar exceções ao filtro" style="margin-left:5px;">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path d="M5 11h14v2H5z" fill="currentColor"/></svg>
                     </button>
                     <button id="eproc-buscar" type="button" class="eproc-btn eproc-btn-secondary" style="margin-left:5px;">Selecionar</button>
                 </div>
@@ -1695,16 +1791,35 @@
             document.getElementById('eproc-dist-magica').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicao(); };
             document.getElementById('eproc-dist-digito').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicaoDigitos(); };
 
+            document.getElementById('eproc-modo-exclusao').onclick = (e) => { e.preventDefault(); toggleModoExclusao(); };
+
             document.getElementById('eproc-termo').addEventListener('keypress', (e) => {
-                if(e.key === 'Enter') { e.preventDefault(); const t = e.target.value; if(t) { addFiltro('texto', t, `"${t}"`); aplicarFiltros(); e.target.value=''; } }
+                if(e.key === 'Enter') {
+                    e.preventDefault();
+                    const t = e.target.value;
+                    if(t) {
+                        addFiltro('texto', t, `"${t}"`, modoExclusaoAtivo);
+                        aplicarFiltros();
+                        e.target.value='';
+                        if (modoExclusaoAtivo) toggleModoExclusao(false);
+                    }
+                }
             });
             document.getElementById('eproc-buscar').onclick = (e) => {
-                e.preventDefault(); const t = document.getElementById('eproc-termo').value; if(t) { addFiltro('texto', t, `"${t}"`); aplicarFiltros(); document.getElementById('eproc-termo').value=''; }
+                e.preventDefault();
+                const t = document.getElementById('eproc-termo').value;
+                if(t) {
+                    addFiltro('texto', t, `"${t}"`, modoExclusaoAtivo);
+                    aplicarFiltros();
+                    document.getElementById('eproc-termo').value='';
+                    if (modoExclusaoAtivo) toggleModoExclusao(false);
+                }
             };
             document.getElementById('eproc-limpar').onclick = (e) => {
                 e.preventDefault(); estadoFiltros =[]; document.getElementById('eproc-data-inicio').value = ''; document.getElementById('eproc-data-fim').value = '';
                 atualizarTags();
                 limparSelecao();
+                toggleModoExclusao(false);
             };
             document.getElementById('eproc-aplicar-data').onclick = (e) => {
                 e.preventDefault();
@@ -1719,8 +1834,9 @@
                     const fmt = (dt) => dt.split('-').reverse().join('/');
                     let lbl = tipoLabel + ": ";
                     lbl += (i && f) ? `${fmt(i)} a ${fmt(f)}` : (i ? `Desde ${fmt(i)}` : `Até ${fmt(f)}`);
-                    addFiltro('data', '', lbl);
+                    addFiltro('data', '', lbl, modoExclusaoAtivo);
                     aplicarFiltros();
+                    if (modoExclusaoAtivo) toggleModoExclusao(false);
                 });
             };
 
@@ -1805,8 +1921,9 @@
             c.querySelectorAll('[data-val]').forEach(b => b.onclick = (e) => {
                 e.preventDefault();
                 if(!modoReordenacao) {
-                    addFiltro('texto', b.dataset.val, b.dataset.lbl);
+                    addFiltro('texto', b.dataset.val, b.dataset.lbl, modoExclusaoAtivo);
                     aplicarFiltros();
+                    if (modoExclusaoAtivo) toggleModoExclusao(false);
                 }
             });
             c.querySelectorAll('[data-rem]').forEach(b => b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); removerBotaoPersonalizado(b.dataset.rem); renderizarBotoes(); });
