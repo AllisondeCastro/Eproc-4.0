@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.9
+// @version      45.12
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -15,6 +15,13 @@
 (function() {
     'use strict';
 
+    // ===========================================================================================
+    // DETECTOR DE TELA DE ERRO (SOBRECARGA DO SERVIDOR)
+    // ===========================================================================================
+    if (document.body && document.body.textContent.includes("Ocorreu um erro nesta operação!")) {
+        alert("⚠️ ERRO DE SOBRECARGA NO EPROC:\n\nO servidor do Tribunal não aguentou processar o volume de dados que você enviou.\n\nDICA MÁGICA: Clique no botão 'Voltar' do seu navegador (suas caixinhas selecionadas continuarão marcadas), desmarque alguns processos e envie em um lote menor.");
+        return; // Interrompe o carregamento do script na tela de erro
+    }
     // ===========================================================================================
     // CONFIGURAÇÕES & CONSTANTES
     // ===========================================================================================
@@ -38,11 +45,24 @@
     const paralisadosNovosSessao = new Set();
     const regexData = /^\d{2}\/\d{2}\/\d{4}$/; // Expressão regular em cache para otimização
 
-    // UTILITÁRIO GLOBAL: FILTRO SEGURO DE LINHAS DE DADOS
+    // UTILITÁRIO GLOBAL: FILTRO SEGURO DE LINHAS DE DADOS (OTIMIZADO E BLINDADO)
     function getLinhasProcessos() {
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
-        if (!tabela) return[];
-        return Array.from(tabela.rows).filter(tr => !tr.querySelector('th') && tr.closest('table') === tabela);
+        if (!tabela) return [];
+
+        const linhas =[];
+        // Acessa apenas as linhas diretas do corpo principal da tabela.
+        // Isso impede que o script destrua as "tabelas invisíveis" que o Eproc usa no cabeçalho.
+        const tbody = tabela.tBodies[0] || tabela;
+
+        for (let i = 0; i < tbody.rows.length; i++) {
+            const tr = tbody.rows[i];
+            // Pula o cabeçalho garantindo que é uma linha de dados
+            if (tr.cells.length > 0 && tr.cells[0].tagName !== 'TH') {
+                linhas.push(tr);
+            }
+        }
+        return linhas;
     }
 
     // UTILITÁRIO DE NORMALIZAÇÃO DE TEXTO
@@ -157,7 +177,7 @@
         .eproc-btn-danger:hover { background-color: #d9534f !important; color: #fff; }
         .eproc-btn-success { background-image: linear-gradient(to bottom, #5cb85c 0, #419641 100%); border-color: #4cae4c; color: #fff; }
 
-        #eproc-add-btn:hover { background-image: linear-gradient(to bottom, #449d44 0, #398439 100%) !important; background-color: #449d44 !important; border-color: #398439 !important; }
+        #eproc-add-btn:hover { background-color: #eef8fa !important; border-color: #0081c2 !important; color: #0081c2 !important; background-image: none !important; }
         .eproc-btn-filtro-padrao { background: #fff !important; color: #0081c2 !important; font-weight: normal !important; background-image: none !important; }
         .eproc-btn-filtro-padrao:hover { background-color: #eef8fa !important; border-color: #0081c2 !important; }
 
@@ -171,11 +191,17 @@
 
         #eproc-contador { text-align: right; color: #777; font-size: 13px; margin-top: 5px; }
 
-        .eproc-btn-group { display: inline-flex; vertical-align: middle; transition: transform 0.2s; }
+        /* Ajustes de hover para os botões "+" e "Reordenar" */
+        #eproc-add-btn:hover, #eproc-reo-btn:hover { background-color: #eef8fa !important; border-color: #0081c2 !important; color: #0081c2 !important; background-image: none !important; }
+        #eproc-reo-btn:hover { text-shadow: 0 0 1px currentColor; } /* Deixa as setas levemente mais espessas no hover */
+
+        /* Estilo Customizado para Botões Personalizados (Opção 4 modificada) */
+        .eproc-btn-group { display: inline-flex; vertical-align: middle; transition: transform 0.2s; margin-right: 0px; }
         .eproc-btn-group.reorder-mode { cursor: move; animation: pulse 0.5s infinite; }
-        .eproc-btn-group .eproc-btn { border-radius: 0 !important; margin-right: 0; }
-        .eproc-btn-group .eproc-btn:first-child { border-top-left-radius: 6px !important; border-bottom-left-radius: 6px !important; }
-        .eproc-btn-group .eproc-btn:last-child { border-top-right-radius: 6px !important; border-bottom-right-radius: 6px !important; color: #d9534f; font-weight: bold; }
+        .eproc-btn-custom { position: relative; padding-right: 28px !important; border-radius: 6px !important; }
+        .eproc-btn-custom-x { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: #555; opacity: 0.2; font-weight: bold; transition: all 0.2s; font-size: 14px; line-height: 1; pointer-events: auto; cursor: pointer; }
+        .eproc-btn-custom:hover .eproc-btn-custom-x { opacity: 0.6; }
+        .eproc-btn-custom .eproc-btn-custom-x:hover { opacity: 1; color: #d9534f; }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
         .eproc-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; }
@@ -209,7 +235,48 @@
         .eproc-toggle-btn span { z-index: 1; flex: 1; text-align: center; font-size: 11px; font-weight: bold; color: #777; transition: color 0.3s; pointer-events: none; }
         .eproc-toggle-btn span.active { color: #fff; }
         .eproc-toggle-slider { position: absolute; top: 1px; left: 1px; width: 30px; height: 24px; background: #0081c2; border-radius: 12px; transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); box-sizing: border-box; }
-        .eproc-toggle-btn.mode-ou .eproc-toggle-slider { transform: translateX(30px); background: #f39c12; }
+        .eproc-toggle-btn.mode-ou .eproc-toggle-slider { transform: translateX(30px); background: #5bc0de; }
+
+/* ================= DESIGN PROFISSIONAL V2 ================= */
+        .eproc-modal-title-modern { font-size: 16px; font-weight: bold; color: #333; display: flex; align-items: center; gap: 10px; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #eee; }
+        .icon-svg { fill: #0081c2; width: 22px; height: 22px; flex-shrink: 0; }
+
+        /* Controles Modernos baseados em CSS Grid (Perfeito alinhamento e animação) */
+        .eproc-segmented-control { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: relative; z-index: 1; background-color: #f0f0f2; border-radius: 6px; padding: 3px; border: 1px solid #ddd; }
+        .eproc-segmented-control label { display: flex; align-items: center; justify-content: center; text-align: center; padding: 5px 14px; font-size: 12px; cursor: pointer; border-radius: 4px; color: #666; transition: color 0.2s ease; margin: 0 !important; user-select: none; line-height: 1.2; font-weight: normal; box-sizing: border-box; }
+        .eproc-segmented-control input[type="radio"] { display: none !important; margin: 0; }
+        .eproc-segmented-control input[type="radio"]:checked + label { color: #0081c2; font-weight: bold; background-color: transparent !important; box-shadow: none !important; }
+
+        /* Animação Seletor Triplo (Inclusão/Autuação/Recebimento) */
+        .eproc-segmented-control:has(#eproc-radio-inclusao)::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(33.333% - 2px); background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); z-index: -1; }
+        .eproc-segmented-control:has(#eproc-radio-inclusao:checked)::before { transform: translateX(0); }
+        .eproc-segmented-control:has(#eproc-radio-autuacao:checked)::before { transform: translateX(100%); }
+        .eproc-segmented-control:has(#eproc-radio-recebimento:checked)::before { transform: translateX(200%); }
+
+        /* Animação Seletor Duplo (Todos/Novos - Modal de Relatório) */
+        .eproc-segmented-control:has(#scope_todos)::before { content: ""; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); background: #fff; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); z-index: -1; }
+        .eproc-segmented-control:has(#scope_todos:checked)::before { transform: translateX(0); }
+        .eproc-segmented-control:has(#scope_novos:checked)::before { transform: translateX(100%); }
+
+        .eproc-date-group { display: inline-flex; align-items: stretch; border: 1px solid #ccc; border-radius: 6px; overflow: hidden; background: #fff; transition: border-color 0.2s; height: 28px; }
+        .eproc-date-group:hover, .eproc-date-group:focus-within { border-color: #0081c2; }
+        .eproc-date-label { padding: 0 8px; font-size: 12px; color: #555; background: #f8f8f9; display: flex; align-items: center; border-right: 1px solid #eee; }
+        .eproc-date-group input[type="date"] { border: none; padding: 0 8px; font-size: 12px; outline: none; color: #333; cursor: pointer; background: transparent; height: 100%; box-sizing: border-box; }
+        .eproc-date-group input[type="date"]:first-of-type { border-right: 1px solid #eee; }
+        .eproc-btn-filtrar-integrado { background-color: transparent; border: none; border-left: 1px solid #eee; padding: 0 15px; font-size: 12px; cursor: pointer; font-weight: normal; color: #0081c2; transition: background 0.2s, color 0.2s; margin: 0; height: 100%; box-sizing: border-box; }
+        .eproc-btn-filtrar-integrado:hover { background-color: #eef8fa; color: #0081c2; }
+        .modern-modal { background: #fff; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; overflow: hidden; margin: 0 auto; font-family: Arial, sans-serif; }
+        .modern-modal-header { background: #fdfdfd; padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; color: #333; font-weight: bold; font-size: 14px; }
+        .modern-modal-body { padding: 20px; }
+        .modern-modal-desc { font-size: 12px; color: #666; margin-bottom: 15px; text-align: center; line-height: 1.4; }
+        .eproc-segmented-full { display: grid; width: 100%; margin-bottom: 15px; box-sizing: border-box; }
+        .eproc-segmented-full label { flex: 1; text-align: center; }
+        .modern-btn-primary { width: 100%; background: #0081c2; color: white; border: none; border-radius: 6px; padding: 10px; font-size: 13px; font-weight: bold; cursor: pointer; margin-bottom: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: background 0.2s; }
+        .modern-btn-primary:hover { background: #006a9e; }
+        .modern-btn-secondary { width: 100%; background: #fff; color: #444; border: 1px solid #ccc; border-radius: 6px; padding: 9px; font-size: 13px; font-weight: bold; cursor: pointer; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: all 0.2s; }
+        .modern-btn-secondary:hover { background: #f0f0f2; color: #333; border-color: #bbb; }
+        .modern-btn-cancel { width: 100%; background: transparent; color: #888; border: none; font-size: 12px; cursor: pointer; padding: 5px; transition: color 0.2s; font-weight: bold; }
+        .modern-btn-cancel:hover { color: #d9534f; text-decoration: underline; }
     `;
     document.head.appendChild(style);
 
@@ -502,7 +569,8 @@
     // ===========================================================================================
     // PARTE 3: TABELA E CHUNK PROCESSING
     // ===========================================================================================
-    let ordemData = 'desc'; let ordemOrigem = 'asc';
+    let estadoOrdenacao = { ordemData: 'desc', ordemOrigem: 'asc' };
+
     function obterDataSegura(str) {
         if (!str) return null; const match = str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
         return match ? new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1])) : null;
@@ -518,11 +586,11 @@
         document.querySelectorAll('.th-nucleo-40 .sort-up, .th-nucleo-origem .sort-up').forEach(img => img.src = 'infra_css/imagens/seta_acima.gif');
         document.querySelectorAll('.th-nucleo-40 .sort-down, .th-nucleo-origem .sort-down').forEach(img => img.src = 'infra_css/imagens/seta_abaixo.gif');
 
-        window[ordemVar] = (window[ordemVar] === 'asc') ? 'desc' : 'asc';
+        estadoOrdenacao[ordemVar] = (estadoOrdenacao[ordemVar] === 'asc') ? 'desc' : 'asc';
         const imgUp = th.querySelector('.sort-up');
         const imgDown = th.querySelector('.sort-down');
 
-        if (window[ordemVar] === 'asc') {
+        if (estadoOrdenacao[ordemVar] === 'asc') {
             if(imgUp) imgUp.src = 'infra_css/imagens/seta_acima_selecionada.gif';
         } else {
             if(imgDown) imgDown.src = 'infra_css/imagens/seta_abaixo_selecionada.gif';
@@ -536,13 +604,17 @@
             if (isData) {
                 const dA = obterDataSegura(vA); const dB = obterDataSegura(vB);
                 if (!dA) return 1; if (!dB) return -1;
-                return window[ordemVar] === 'asc' ? dA - dB : dB - dA;
+                return estadoOrdenacao[ordemVar] === 'asc' ? dA - dB : dB - dA;
             } else {
                 if (vA === vB) return 0;
-                return window[ordemVar] === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
+                return estadoOrdenacao[ordemVar] === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
             }
         });
-        rows.forEach(r => parent.appendChild(r));
+
+        // OTIMIZAÇÃO MAX: DocumentFragment evita MÚLTIPLOS reflows de tela. Injeta tudo de uma só vez.
+        const fragment = document.createDocumentFragment();
+        rows.forEach(r => fragment.appendChild(r));
+        parent.appendChild(fragment);
     }
 
     function verificarParalisacao(linha, idxEvento) {
@@ -736,15 +808,33 @@
             e.preventDefault(); e.stopPropagation();
             const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
             const seletorAbrangencia = totalNovos > 0 ? `
-                <div style="margin-bottom:15px; text-align:left; background:#f9f9f9; padding:10px; border-radius:4px; border:1px solid #eee;">
-                    <label style="display:block; font-size:12px; font-weight:bold; margin-bottom:8px; color:#555;">Abrangência do Relatório:</label>
-                    <label class="eproc-radio-label" style="margin-bottom:5px;"><input type="radio" name="eproc-rel-scope" value="todos" checked> Todos os Paralisados (${totalParalisados})</label>
-                    <label class="eproc-radio-label"><input type="radio" name="eproc-rel-scope" value="novos"> Apenas Novos Paralisados (${totalNovos})</label>
+                <div class="eproc-segmented-control eproc-segmented-full">
+                    <input type="radio" name="eproc-rel-scope" id="scope_todos" value="todos" checked>
+                    <label for="scope_todos">Todos (${totalParalisados})</label>
+                    <input type="radio" name="eproc-rel-scope" id="scope_novos" value="novos">
+                    <label for="scope_novos">Apenas Novos (${totalNovos})</label>
                 </div>` : '';
-            overlay.innerHTML = `<div class="eproc-modal-content" style="width:340px; text-align:center;"><div class="eproc-modal-title">Relatório de Paralisados</div>${seletorAbrangencia}
-                <button id="btn-rel-geral" class="eproc-btn" style="width:100%; margin-bottom:10px; font-weight:bold;">Relatório Geral</button>
-                <button id="btn-rel-digito" class="eproc-btn eproc-btn-secondary" style="width:100%; margin-bottom:15px; font-weight:bold;">Relatório Por Dígito</button>
-                <button id="btn-rel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
+
+            overlay.innerHTML = `
+                <div class="modern-modal" style="width:340px;">
+                    <div class="modern-modal-header">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#d9534f"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                        Relatório de Paralisados
+                    </div>
+                    <div class="modern-modal-body">
+                        <div class="modern-modal-desc">Selecione a abrangência e o tipo de relatório que deseja exportar.</div>
+                        ${seletorAbrangencia}
+                        <button id="btn-rel-geral" class="modern-btn-primary">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                            Gerar Relatório Geral
+                        </button>
+                        <button id="btn-rel-digito" class="modern-btn-secondary">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h4v4H4V4zm6 0h4v4h-4V4zm6 0h4v4h-4V4zM4 10h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4zM4 16h4v4H4v-4zm6 0h4v4h-4v-4zm6 0h4v4h-4v-4z"/></svg>
+                            Relatório Por Dígito
+                        </button>
+                        <button id="btn-rel-cancel" class="modern-btn-cancel">Cancelar e Fechar</button>
+                    </div>
+                </div>`;
             document.body.appendChild(overlay);
 
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
@@ -799,10 +889,19 @@
             e.preventDefault(); e.stopPropagation();
             if (totalNovos === 0) { executarSelecao('todos'); return; }
             const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
-            overlay.innerHTML = `<div class="eproc-modal-content" style="width:320px;text-align:center;"><div class="eproc-modal-title">Selecionar Paralisados</div>
-                <button id="btn-sel-todos" class="eproc-btn" style="width:100%;margin-bottom:10px;font-weight:bold;">Todos os Paralisados (${totalParalisados})</button>
-                <button id="btn-sel-novos" class="eproc-btn eproc-btn-secondary" style="width:100%;margin-bottom:15px;font-weight:bold;">Apenas os Novos (${totalNovos})</button>
-                <button id="btn-sel-cancel" class="eproc-btn eproc-btn-danger" style="width:100%;">Cancelar</button></div>`;
+            overlay.innerHTML = `
+                <div class="modern-modal" style="width:320px;">
+                    <div class="modern-modal-header" style="border-bottom-color: #0081c2;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#0081c2"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Selecionar Paralisados
+                    </div>
+                    <div class="modern-modal-body">
+                        <div class="modern-modal-desc">Selecione quais processos paralisados deseja marcar na tabela para distribuir.</div>
+                        <button id="btn-sel-todos" class="modern-btn-primary">Todos os Paralisados (${totalParalisados})</button>
+                        <button id="btn-sel-novos" class="modern-btn-secondary" style="margin-top: 10px;">Apenas os Novos (${totalNovos})</button>
+                        <button id="btn-sel-cancel" class="modern-btn-cancel">Cancelar e Fechar</button>
+                    </div>
+                </div>`;
             document.body.appendChild(overlay);
             const fechar = () => { if(document.body.contains(overlay)) document.body.removeChild(overlay); };
             document.getElementById('btn-sel-cancel').onclick = fechar;
@@ -1039,7 +1138,7 @@
 
         overlay.innerHTML = `
             <div class="eproc-modal-content" style="width: 320px; text-align:center;">
-                <div class="eproc-modal-title">🪄 Distribuição por Dígitos</div>
+                <div class="eproc-modal-title-modern"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M20 8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4V8zm-6 6h-4v-4h4v4z"/></svg> Distribuição por Dígitos</div>
                 <p style="font-size:12px; color:#666; margin-bottom:15px;">Selecione o dígito que deseja distribuir:</p>
                 <div style="display:flex; flex-wrap:wrap; justify-content:center; margin-bottom:15px;">
                     ${botoesDigitos}
@@ -1174,7 +1273,12 @@
 
         overlay.innerHTML = `
             <div class="eproc-modal-content" style="width: 420px; max-height: 85vh; overflow-y: auto;">
-                <div class="eproc-modal-title">🪄 Distribuição Inteligente por ${tipo}</div>
+                <div class="eproc-modal-title-modern">
+                    <svg class="icon-svg" viewBox="0 0 24 24">
+                        ${tipo === 'Dígito' ? '<path d="M20 8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4V8zm-6 6h-4v-4h4v4z"/>' : '<path d="M4 10v7h3v-7H4zm6 0v7h3v-7h-3zM2 22h19v-3H2v3zm14-12v7h3v-7h-3zm-4.5-9L2 6v2h19V6l-9.5-5z"/>'}
+                    </svg>
+                    Distribuição Inteligente por ${tipo}
+                </div>
                 <p style="font-size:12px; color:#666; margin-bottom:15px;">Processos filtrados e agrupados. Os que já possuem o localizador correto foram ignorados.</p>
                 <div style="padding-right:5px; margin-bottom:15px;">
                     ${htmlBotoes}
@@ -1456,30 +1560,7 @@
             return true;
         }
 
-        function verificarPendenciasReais() {
-            let pendentes = 0;
-            let totalValidos = 0;
-            const linhas = getLinhasProcessos();
-
-            linhas.forEach(tr => {
-                const temCheckbox = tr.querySelector('input[type="checkbox"]');
-                const temLink = tr.querySelector('a[href*="acao=processo_selecionar"]');
-                if (!temCheckbox && !temLink) return;
-
-                totalValidos++;
-                const td = tr.querySelector('.eproc-col-data-nucleo');
-                if (!td) { pendentes++; return; }
-                const texto = td.textContent.trim();
-                const temSpinner = td.querySelector('.eproc-spinner');
-                const statusAtivo = tr.getAttribute('data-nucleo-status');
-
-                if (temSpinner || texto === '...' || texto === '' || statusAtivo === 'queued' || statusAtivo === 'processing') {
-                    pendentes++;
-                }
-            });
-            return { pendentes, total: totalValidos };
-        }
-
+        // --- OTIMIZAÇÃO: CÃO DE GUARDA REMASTERIZADO (Usa O(1) de memória em vez de O(n) da tela)
         function caoDeGuardaEAplicar(callbackAcao) {
             const fb = document.getElementById('eproc-feedback');
             const radio = document.getElementById('eproc-radio-recebimento');
@@ -1489,17 +1570,17 @@
                 return;
             }
             function cicloMonitoramento() {
-                const stats = verificarPendenciasReais();
-                if (stats.pendentes > 0) {
+                const pendentes = filaDeProcessamento.queue.length + filaDeProcessamento.active;
+
+                if (pendentes > 0) {
                     fb.style.display = 'block';
-                    const progresso = stats.total > 0 ? ((stats.total - stats.pendentes) / stats.total) * 100 : 0;
                     fb.innerHTML = `
-                        <div style="position:absolute; top:0; left:0; height:100%; width:${progresso}%; background-color:#fff3cd; z-index:0; transition: width 0.3s ease;"></div>
-                        <div style="position:relative; z-index:1; padding:12px;">
-                            ⚠️ Aguarde o rastreamento das datas de recebimento...<br>Processos restantes: <b>${stats.pendentes}</b>
+                        <div style="position:relative; z-index:1; padding:12px; color: #856404; background-color: #fff3cd; border-radius:4px; font-weight:normal;">
+                            <div class="eproc-spinner" style="border-top-color:#856404; margin-right:8px; width:12px; height:12px;"></div>
+                            Aguarde a leitura das datas pelo servidor. Restam: <b>${pendentes}</b> processos...
                         </div>
                     `;
-                    setTimeout(cicloMonitoramento, 1000);
+                    setTimeout(cicloMonitoramento, 500); // Check otimizado e mais rápido
                 } else {
                     fb.style.display = 'none';
                     callbackAcao();
@@ -1522,6 +1603,10 @@
             const dtInicio = inicioVal ? new Date(inicioVal + 'T00:00:00') : null;
             const dtFim = fimVal ? new Date(fimVal + 'T00:00:00') : null;
 
+            // Busca se o filtro de data ativo foi marcado como negativo (modo exclusão)
+            const filtroData = estadoFiltros.find(f => f.tipo === 'data');
+            const dataExclusao = filtroData ? filtroData.negativo : false;
+
             const positivos = estadoFiltros.filter(f => !f.negativo).map(f => ({...f, valorUpper: removerAcentos(f.valor.toUpperCase())}));
             const negativos = estadoFiltros.filter(f => f.negativo).map(f => ({...f, valorUpper: removerAcentos(f.valor.toUpperCase())}));
 
@@ -1539,12 +1624,22 @@
                 const chk = linha.querySelector('input[type="checkbox"]');
                 if (!chk || chk.disabled) return;
 
-                if (!validarIntervaloData(linha, dtInicio, dtFim)) {
-                     updates.push({ tr: linha, chk: chk, select: false });
-                     return;
+                // LÓGICA DE DATA ATUALIZADA (SUPORTE A FILTRO NEGATIVO)
+                if (temData) {
+                    const dentroDoIntervalo = validarIntervaloData(linha, dtInicio, dtFim);
+                    if (dataExclusao && dentroDoIntervalo) {
+                        // Se for exclusão e o processo estiver no período de datas, ele é ignorado
+                        updates.push({ tr: linha, chk: chk, select: false });
+                        return;
+                    } else if (!dataExclusao && !dentroDoIntervalo) {
+                        // Se for inclusão normal e o processo NÃO estiver no período, ele é ignorado
+                        updates.push({ tr: linha, chk: chk, select: false });
+                        return;
+                    }
                 }
 
-                const linhaTexto = removerAcentos(linha.getAttribute('data-idx-text') || "");
+                // OTIMIZAÇÃO: O texto salvo no atributo já passou pelo removerAcentos na criação da linha.
+                const linhaTexto = linha.getAttribute('data-idx-text') || "";
                 let passouPositivos = true;
 
                 if (temPositivosTextStatus) {
@@ -1732,13 +1827,11 @@
 
             try {
                 let strBotoes = localStorage.getItem(LS_KEY_BOTOES);
-                // Tenta puxar a nova chave. Se não existir, resgata a antiga "gaveta" v17
                 let strOrdem = localStorage.getItem(LS_KEY_ORDEM) || localStorage.getItem("eproc_ordem_botoes_v17");
 
                 botoesPersonalizados = strBotoes ? JSON.parse(strBotoes) :[];
                 ordemBotoes = strOrdem ? JSON.parse(strOrdem) :[];
 
-                // Se precisou usar a gaveta antiga, já converte e salva na gaveta nova permanente
                 if (ordemBotoes.length > 0 && !localStorage.getItem(LS_KEY_ORDEM)) {
                     localStorage.setItem(LS_KEY_ORDEM, JSON.stringify(ordemBotoes));
                 }
@@ -1757,27 +1850,35 @@
                 <div class="eproc-row" style="justify-content: space-between;">
                    <div style="display:flex; gap:10px; align-items:center;">
 
-                        <button id="eproc-dist-magica" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Vara de origem" style="margin-right: 5px;">
-                            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.41l9 9c.36.36.86.58 1.41.58.55 0 1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41 0-.55-.23-1.06-.59-1.41zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z"/></svg>
+                        <button id="eproc-dist-magica" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente por Vara de Origem" style="margin-right: 5px;">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M4 10v7h3v-7H4zm6 0v7h3v-7h-3zM2 22h19v-3H2v3zm14-12v7h3v-7h-3zm-4.5-9L2 6v2h19V6l-9.5-5z"/></svg>
                         </button>
 
                         <button id="eproc-dist-digito" type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-icon" title="Distribuição Inteligente de Dígitos" style="margin-right: 15px;">
-                            <svg viewBox="0 0 24 24" width="18" height="18">
-                                <text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle" font-size="20" font-family="Arial, sans-serif" font-weight="bold" fill="currentColor">#</text>
-                            </svg>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20 8h-4V4h-2v4h-4V4H8v4H4v2h4v4H4v2h4v4h2v-4h4v4h2v-4h4v-2h-4v-4h4V8zm-6 6h-4v-4h4v4z"/></svg>
                         </button>
 
-                        <span style="font-weight:bold;font-size:12px; margin-bottom:0; display:flex; align-items:center;">Fonte:</span>
-                        <div class="eproc-radio-group">
-                            <label class="eproc-radio-label"><input type="radio" name="eproc-tipo-data" id="eproc-radio-inclusao" value="inclusao" checked> Inclusão</label>
-                            <label class="eproc-radio-label"><input type="radio" name="eproc-tipo-data" id="eproc-radio-autuacao" value="autuacao"> Autuação</label>
-                            <label class="eproc-radio-label"><input type="radio" name="eproc-tipo-data" id="eproc-radio-recebimento" value="recebimento"> Recebimento</label>
+                        <span style="font-weight:bold;font-size:12px; margin-bottom:0; display:flex; align-items:center; color:#555;">Fonte:</span>
+                        <div class="eproc-segmented-control">
+                            <input type="radio" name="eproc-tipo-data" id="eproc-radio-inclusao" value="inclusao" checked>
+                            <label for="eproc-radio-inclusao">Inclusão</label>
+
+                            <input type="radio" name="eproc-tipo-data" id="eproc-radio-autuacao" value="autuacao">
+                            <label for="eproc-radio-autuacao">Autuação</label>
+
+                            <input type="radio" name="eproc-tipo-data" id="eproc-radio-recebimento" value="recebimento">
+                            <label for="eproc-radio-recebimento">Recebimento</label>
                         </div>
-                        <label style="font-size:12px;margin:0;">De: <input type="date" id="eproc-data-inicio" class="eproc-form-control" style="width:auto;"></label>
-                        <label style="font-size:12px;margin:0;">Até: <input type="date" id="eproc-data-fim" class="eproc-form-control" style="width:auto;"></label>
-                        <button id="eproc-aplicar-data" type="button" class="eproc-btn eproc-btn-secondary">Filtrar Data</button>
+
+                        <div class="eproc-date-group" style="margin-left: 5px;">
+                            <span class="eproc-date-label">De</span>
+                            <input type="date" id="eproc-data-inicio">
+                            <span class="eproc-date-label" style="border-left: 1px solid #eee;">Até</span>
+                            <input type="date" id="eproc-data-fim">
+                            <button id="eproc-aplicar-data" type="button" class="eproc-btn-filtrar-integrado">Filtrar Data</button>
+                        </div>
                     </div>
-                    <button id="eproc-limpar" type="button" class="eproc-btn eproc-btn-danger">Limpar Tudo</button>
+                    <button id="eproc-limpar" type="button" class="eproc-btn eproc-btn-danger" title="Limpar filtros, seleções e campos">Limpar</button>
                 </div>
                 <div id="eproc-botoes-container" class="eproc-row" style="border-top: 1px solid #eee; padding-top: 10px;"></div>
                 <div class="eproc-row" style="flex-wrap: nowrap; align-items: center;">
@@ -1873,10 +1974,50 @@
                 }
             };
             document.getElementById('eproc-limpar').onclick = (e) => {
-                e.preventDefault(); estadoFiltros =[]; document.getElementById('eproc-data-inicio').value = ''; document.getElementById('eproc-data-fim').value = '';
+                e.preventDefault();
+
+                // 1. Resetar Arrays internos e Inputs de Data/Pesquisa do Script
+                estadoFiltros =[];
+                document.getElementById('eproc-data-inicio').value = '';
+                document.getElementById('eproc-data-fim').value = '';
+                document.getElementById('eproc-termo').value = '';
+
+                // 2. Resetar lógica "E / OU" para o padrão (E)
+                modoBusca = 'E';
+                const toggleBtn = document.getElementById('eproc-toggle-logica');
+                if (toggleBtn) {
+                    toggleBtn.classList.remove('mode-ou');
+                    document.getElementById('eproc-toggle-e').classList.add('active');
+                    document.getElementById('eproc-toggle-ou').classList.remove('active');
+                }
+
+                // 3. Resetar modos visuais e seleções da tabela
+                toggleModoExclusao(false);
                 atualizarTags();
                 limparSelecao();
-                toggleModoExclusao(false);
+
+                // 4. Resetar campos NATIVOS do Eproc (Novo Localizador e Desativar Localizador)
+                const selectNovoLoc = document.getElementById('selNovoLocalizador');
+                if (selectNovoLoc) {
+                    // Tenta voltar para o valor "null", se não existir, vai para vazio
+                    selectNovoLoc.value = selectNovoLoc.querySelector('option[value="null"]') ? 'null' : '';
+                    selectNovoLoc.dispatchEvent(new Event('change'));
+
+                    // Atualiza a interface gráfica do Eproc (bootstrap-select) se existir
+                    if (typeof $ !== 'undefined' && $(selectNovoLoc).hasClass('selectpicker')) {
+                        $(selectNovoLoc).selectpicker('refresh');
+                    }
+                }
+
+                const selectDesativarLoc = document.getElementById('selLocalizadorDesativar');
+                if (selectDesativarLoc) {
+                    Array.from(selectDesativarLoc.options).forEach(opt => opt.selected = false);
+                    selectDesativarLoc.dispatchEvent(new Event('change'));
+
+                    if (typeof $ !== 'undefined' && $(selectDesativarLoc).hasClass('selectpicker')) {
+                        $(selectDesativarLoc).selectpicker('refresh');
+                    }
+                }
             };
             document.getElementById('eproc-aplicar-data').onclick = (e) => {
                 e.preventDefault();
@@ -1965,14 +2106,28 @@
             c.innerHTML = todos.map((b, i) => {
                 const custom = !b.padrao;
                 const idxR = custom ? botoesPersonalizados.findIndex(x => x.label === b.label) : -1;
-                return `
-                    <div class="eproc-btn-group ${modoReordenacao?'reorder-mode':''}" draggable="${modoReordenacao}" data-idx="${i}">
-                        <button type="button" class="eproc-btn eproc-btn-filtro-padrao" data-val="${b.valor}" data-lbl="${b.label}" ${modoReordenacao?'style="pointer-events:none"':''}>${b.label}</button>
-                        ${custom ? `<button type="button" class="eproc-btn" data-rem="${idxR}" style="border-left:0;color:#d9534f;${modoReordenacao?'pointer-events:none':''}">×</button>`:''}
-                    </div>`;
+
+                if (custom) {
+                    // Novo Layout (Opção 4 Customizada) para os botões do usuário
+                    return `
+                        <div class="eproc-btn-group ${modoReordenacao?'reorder-mode':''}" draggable="${modoReordenacao}" data-idx="${i}" style="margin-right:4px;">
+                            <button type="button" class="eproc-btn eproc-btn-filtro-padrao eproc-btn-custom" data-val="${b.valor}" data-lbl="${b.label}" ${modoReordenacao?'style="pointer-events:none"':''}>
+                                ${b.label}
+                                <span class="eproc-btn-custom-x" data-rem="${idxR}" title="Excluir atalho" ${modoReordenacao?'style="pointer-events:none"':''}>✕</span>
+                            </button>
+                        </div>`;
+                } else {
+                    // Layout padrão para os botões nativos
+                    return `
+                        <div class="eproc-btn-group ${modoReordenacao?'reorder-mode':''}" draggable="${modoReordenacao}" data-idx="${i}" style="margin-right:4px;">
+                            <button type="button" class="eproc-btn eproc-btn-filtro-padrao" data-val="${b.valor}" data-lbl="${b.label}" ${modoReordenacao?'style="pointer-events:none; border-radius:6px!important;"':'style="border-radius:6px!important;"'}>${b.label}</button>
+                        </div>`;
+                }
             }).join('') + `
-                <button type="button" id="eproc-add-btn" class="eproc-btn eproc-btn-success" style="width:24px;padding:0;border-radius:50%!important;">+</button>
-                <button type="button" id="eproc-reo-btn" class="eproc-btn ${modoReordenacao?'ativo':''}" style="width:24px;padding:0;margin-left:5px;">⇆</button>
+                <button type="button" id="eproc-add-btn" class="eproc-btn" title="Adicionar novo botão" style="margin-left:5px; padding:0; width:32px; height:28px; display:inline-flex; align-items:center; justify-content:center; color:#666; background:transparent; background-image:none; border-radius:6px!important;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                </button>
+                <button type="button" id="eproc-reo-btn" class="eproc-btn ${modoReordenacao?'ativo':''}" title="Reordenar botões" style="margin-left:5px; padding:0; width:32px; height:28px; display:inline-flex; align-items:center; justify-content:center; color:#666; font-size:16px; background:transparent; background-image:none; border-radius:6px!important;">⇆</button>
             `;
 
             c.querySelectorAll('[data-val]').forEach(b => b.onclick = (e) => {
@@ -2006,27 +2161,46 @@
             }
         }
 
-        // --- PROTEÇÃO CONTRA CRASH DO SERVIDOR (MAX_INPUT_VARS) ---
+        // --- PROTEÇÃO CONTRA CRASH DO SERVIDOR (MAX_INPUT_VARS E TIMEOUT) ---
         function protegerServidorEproc() {
             const form = document.getElementById('frmProcessoLista');
             if (!form) return;
 
+            // Função central de blindagem
+            function prepararEnvio(evento) {
+                // CAMADA 2: Limpador de Lixo (Bypass do erro max_input_vars do PHP)
+                const linhas = getLinhasProcessos();
+                if (linhas.length > 0) {
+                    linhas.forEach(tr => {
+                        const chk = tr.querySelector('input[type="checkbox"]');
+                        // Se a linha NÃO está marcada, desabilitamos todos os inputs dela
+                        // Isso impede que o navegador envie os dados "lixo" ao servidor
+                        if (chk && !chk.checked) {
+                            tr.querySelectorAll('input, select, textarea').forEach(inp => inp.disabled = true);
+                        }
+                    });
+
+                    // Sistema anti-congelamento: se o Eproc travar a submissão por outro motivo de tela (ex: falta de campo)
+                    setTimeout(() => {
+                        linhas.forEach(tr => {
+                            tr.querySelectorAll(':disabled').forEach(inp => inp.disabled = false);
+                        });
+                    }, 2000);
+                }
+                return true; // Libera o envio
+            }
+
+            // Gancho 1: Intercepta o clique nativo nos botões
+            form.addEventListener('submit', function(e) {
+                if (!prepararEnvio(e)) e.preventDefault();
+            });
+
+            // Gancho 2: Intercepta envios feitos via JavaScript interno do próprio Eproc (form.submit())
             const originalSubmit = form.submit;
             form.submit = function() {
-                const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
-                if (tabela) {
-                    const linhas = tabela.querySelectorAll('tr[class^="infraTr"]');
-                    if (linhas.length > 50) {
-                        linhas.forEach(tr => {
-                            const chk = tr.querySelector('input[type="checkbox"]');
-                            if (chk && !chk.checked) {
-                                tr.querySelectorAll('input').forEach(inp => inp.disabled = true);
-                                tr.querySelectorAll('select').forEach(sel => sel.disabled = true);
-                            }
-                        });
-                    }
+                if (prepararEnvio(null)) {
+                    originalSubmit.call(this);
                 }
-                originalSubmit.call(this);
             };
         }
 
@@ -2036,10 +2210,35 @@
              setInterval(gerenciarColunasEProcessos, 2000);
 
              const observer = new MutationObserver((mutations) => {
+                if (isScanning) return; // Ignora se já estiver escaneando
+
+                // Verifica se TODAS as alterações visuais foram causadas pelo próprio script
+                const apenasMutacoesDoScript = mutations.every(m => {
+                    // Ignora se o script apenas pintou uma linha ou atualizou um atributo (data-nucleo-status)
+                    if (m.type === 'attributes') return true;
+
+                    // Ignora se o script apenas inseriu os spinners de carregamento ou as colunas novas
+                    if (m.type === 'childList') {
+                        return Array.from(m.addedNodes).every(node =>
+                            node.nodeType !== 1 || // Ignora textos vazios
+                            node.classList.contains('eproc-spinner') ||
+                            node.classList.contains('eproc-col-data-nucleo') ||
+                            node.classList.contains('eproc-col-origem-nucleo')
+                        );
+                    }
+                    return false;
+                });
+
+                // Se foi apenas o seu script trabalhando, aborte (evita o loop infinito de CPU)
+                if (apenasMutacoesDoScript) return;
+
                 if (window.eprocDebounce) clearTimeout(window.eprocDebounce);
                 window.eprocDebounce = setTimeout(gerenciarColunasEProcessos, 500);
             });
-            observer.observe(document.body, { childList: true, subtree: true });
+
+            // Foca o "olheiro" apenas na tabela ou no formulário principal (ignora o menu lateral e o cabeçalho nativos)
+            const alvoObservacao = document.getElementById('tabelaLocalizadores') || document.getElementById('frmProcessoLista') || document.body;
+            observer.observe(alvoObservacao, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
         };
 
         const init = () => {
