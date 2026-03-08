@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.12
+// @version      45.13
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -467,18 +467,30 @@
     // PARTE 2: MOTOR DE REQUISIÇÃO (REDE E CACHE)
     // ===========================================================================================
     const filaDeProcessamento = {
-        queue:[], active: 0, pauseUntil: 0,
+        queue:[], active: 0, pending: 0, pauseUntil: 0,
         add: function(url, celula, linha, numProcesso) {
             if (linha.getAttribute('data-nucleo-status')) return;
+            this.pending++;
             const cachedValue = CacheManager.getSync(numProcesso) || CacheManager.getSync(url);
-            if (cachedValue) { this.renderizarDoCache(celula, linha, cachedValue); return; }
+            if (cachedValue) { 
+                this.renderizarDoCache(celula, linha, cachedValue); 
+                this.pending--; 
+                return; 
+            }
             DomBatcher.add(celula, `<div class="eproc-spinner"></div>`, linha, { 'data-nucleo-status': 'checking-storage' });
             CacheManager.getAsync(numProcesso || url).then((dbValue) => {
-                if (dbValue) this.renderizarDoCache(celula, linha, dbValue);
-                else {
+                if (dbValue) { 
+                    this.renderizarDoCache(celula, linha, dbValue); 
+                    this.pending--;
+                } else {
                     this.queue.push({ url, celula, linha, numProcesso, retries: 0 });
-                    linha.setAttribute('data-nucleo-status', 'queued'); this.process();
+                    linha.setAttribute('data-nucleo-status', 'queued'); 
+                    this.process();
                 }
+            }).catch(() => {
+                this.queue.push({ url, celula, linha, numProcesso, retries: 0 });
+                linha.setAttribute('data-nucleo-status', 'queued'); 
+                this.process();
             });
         },
         renderizarDoCache: function(celula, linha, value) {
@@ -490,27 +502,43 @@
                     DomBatcher.add(celulaOrigem, `<span title="${origemStr}">${origemStr}</span>`, null, null);
                     linha.setAttribute('data-idx-text', (linha.getAttribute('data-idx-text') || "") + " " + removerAcentos(origemStr.toUpperCase()));
                 }
+            } else {
+                DomBatcher.add(celula, `<span style="color:#999;">-</span>`, linha, { 'data-nucleo-carregado': 'true', 'data-nucleo-status': null });
             }
         },
         process: async function() {
             if (this.active >= MAX_CONCURRENCY || this.queue.length === 0) return;
             if (Date.now() < this.pauseUntil) { setTimeout(() => this.process(), 1000); return; }
+            
             await rateLimiter.consume();
-            if (this.queue.length === 0) return;
-            await new Promise(r => setTimeout(r, Math.floor(Math.random() * 150)));
-            const task = this.queue.shift(); this.active++; task.linha.setAttribute('data-nucleo-status', 'processing');
-            this.executeTask(task); this.process();
+            
+            if (this.active >= MAX_CONCURRENCY || this.queue.length === 0) return;
+            
+            const task = this.queue.shift(); 
+            if (!task) return;
+
+            this.active++; 
+            task.linha.setAttribute('data-nucleo-status', 'processing');
+            this.executeTask(task); 
+            this.process();
         },
         executeTask: async function(task) {
             try {
+                await new Promise(r => setTimeout(r, Math.floor(Math.random() * 150)));
+                
                 let url = task.url;
                 if (task.retries > 3) url += `${url.includes('?')?'&':'?'}_force_refresh=${Date.now()}`;
                 if (task.retries > 6) await new Promise(r => setTimeout(r, Math.floor(Math.random() * 3000) + 1500));
-                const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), 15000);
+                
+                const controller = new AbortController(); 
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                
                 const res = await fetch(url, { method: 'GET', headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'include', cache: 'no-store', signal: controller.signal });
                 clearTimeout(timeoutId);
+                
                 if (res.url.includes("login") || res.url.includes("acao=sair") || res.url.includes("msg=Sua")) throw new Error("SESSAO_ENCERRADA");
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                
                 const text = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
                 if (text.length < 500 || text.includes("Sua sessão foi encerrada")) throw new Error("SESSAO_ENCERRADA");
 
@@ -518,12 +546,14 @@
                 let dataAchada = null, origemAchada = "-";
                 const regexOrigem = /\(([^()]+?)\s+para\s+.*?(?:4\.0)/i;
                 const idx = text.indexOf(TEXTO_ALVO_1);
+                
                 if (idx !== -1) {
                     const matches = text.substring(Math.max(0, idx - 1000), idx).match(/(\d{2}\/\d{2}\/\d{4})/g);
                     if (matches && matches.length > 0) dataAchada = matches[matches.length - 1];
                     const matchOrigem = text.substring(idx, Math.min(text.length, idx + 500)).match(regexOrigem);
                     if (matchOrigem) origemAchada = matchOrigem[1].trim();
                 }
+                
                 if (!dataAchada) {
                     const doc = new DOMParser().parseFromString(text, "text/html");
                     for (let tr of doc.querySelectorAll('#tblEventos tr')) {
@@ -538,19 +568,39 @@
                         }
                     }
                 }
+                
                 if (dataAchada) {
                     CacheManager.set(task.numProcesso || task.url, `${dataAchada}###${origemAchada}`);
                     this.renderizarDoCache(task.celula, task.linha, `${dataAchada}###${origemAchada}`);
-                    this.active--; this.process();
-                } else throw new Error("Data pattern not found");
+                    this.active--; 
+                    this.pending--;
+                    this.process();
+                } else {
+                    throw new Error("Data pattern not found");
+                }
 
             } catch (error) {
-                this.active--; task.retries++;
+                this.active--; 
+                task.retries++;
+                
+                if (task.retries > 15) {
+                    this.pending--;
+                    DomBatcher.add(task.celula, `<span style="color:red;" title="Erro na busca">Erro</span>`, task.linha, { 'data-nucleo-status': 'error', 'data-nucleo-carregado': 'true' });
+                    this.process();
+                    return;
+                }
+
                 if (error.message === "SESSAO_ENCERRADA" || error.message.includes("Sessão")) {
                     this.pauseUntil = Date.now() + 15000; task.linha.setAttribute('data-nucleo-status', 'queued');
                     this.queue.push(task); setTimeout(() => this.process(), 15000); return;
                 }
-                if (!document.body.contains(task.linha)) { this.process(); return; }
+                
+                if (!document.body.contains(task.linha)) { 
+                    this.pending--;
+                    this.process(); 
+                    return; 
+                }
+                
                 const color = task.retries > 10 ? "purple" : (task.retries > 5 ? "red" : "orange");
                 DomBatcher.add(task.celula, `<div class="eproc-spinner" style="border-top-color: ${color};"></div>`, task.linha, { 'data-nucleo-status': 'waiting-retry' });
                 setTimeout(() => { task.linha.setAttribute('data-nucleo-status', 'queued'); this.queue.push(task); this.process(); }, Math.min((task.retries * 3000) + 2000, 45000));
@@ -681,7 +731,11 @@
 
         const colIdxDate = header.querySelector('.th-nucleo-40').cellIndex;
         isScanning = true; const linhas = getLinhasProcessos();
-        if (linhas.length === 0) return;
+        
+        if (linhas.length === 0) { 
+            isScanning = false; 
+            return; 
+        }
 
         let temParalisado = false;
 
@@ -715,6 +769,9 @@
                             tdOrigem.innerHTML = `<span title="${origemStr}">${origemStr}</span>`;
                             tr.setAttribute('data-nucleo-carregado', 'true');
                             tr.setAttribute('data-idx-text', (tr.getAttribute('data-idx-text') || "") + " " + removerAcentos(origemStr.toUpperCase()));
+                        } else {
+                            tdDate.innerHTML = `<span style="color:#999;">-</span>`;
+                            tr.setAttribute('data-nucleo-carregado', 'true');
                         }
                     } else {
                         filaDeProcessamento.add(link.href, tdDate, tr, numProc);
@@ -759,26 +816,34 @@
 
         // FASE 1: 10 primeiros processos processados imediatamente
         const limitFirst = Math.min(10, linhas.length);
-        for (let i = 0; i < limitFirst; i++) {
-            processRow(linhas[i]);
-        }
+        try {
+            for (let i = 0; i < limitFirst; i++) {
+                processRow(linhas[i]);
+            }
+        } catch(e) { console.error(e); }
 
         // FASE 2: O Restante em bloco de leitura do IndexedDB
         if (linhas.length > limitFirst) {
             requestAnimationFrame(() => {
                 const keysToWarm =[];
-                for (let i = limitFirst; i < linhas.length; i++) {
-                    const link = linhas[i].querySelector('a[href*="acao=processo_selecionar"]');
-                    if (link) {
-                        const numProc = link.textContent.trim().replace(/\D/g, '');
-                        if (!CacheManager.getSync(numProc)) keysToWarm.push(numProc);
+                try {
+                    for (let i = limitFirst; i < linhas.length; i++) {
+                        const link = linhas[i].querySelector('a[href*="acao=processo_selecionar"]');
+                        if (link) {
+                            const numProc = link.textContent.trim().replace(/\D/g, '');
+                            if (!CacheManager.getSync(numProc)) keysToWarm.push(numProc);
+                        }
                     }
-                }
+                } catch(e) { console.error(e); }
 
                 CacheManager.warmupChunk(keysToWarm).then(() => {
-                    for (let i = limitFirst; i < linhas.length; i++) {
-                        processRow(linhas[i]);
-                    }
+                    try {
+                        for (let i = limitFirst; i < linhas.length; i++) {
+                            processRow(linhas[i]);
+                        }
+                    } catch(e) { console.error(e); }
+                    finalize();
+                }).catch(() => {
                     finalize();
                 });
             });
@@ -1560,27 +1625,29 @@
             return true;
         }
 
-        // --- OTIMIZAÇÃO: CÃO DE GUARDA REMASTERIZADO (Usa O(1) de memória em vez de O(n) da tela)
+        // --- OTIMIZAÇÃO: CÃO DE GUARDA REMASTERIZADO ---
         function caoDeGuardaEAplicar(callbackAcao) {
             const fb = document.getElementById('eproc-feedback');
             const radio = document.getElementById('eproc-radio-recebimento');
+            
             if (!radio || !radio.checked) {
                 fb.style.display = 'none';
                 callbackAcao();
                 return;
             }
+            
             function cicloMonitoramento() {
-                const pendentes = filaDeProcessamento.queue.length + filaDeProcessamento.active;
+                const pendentes = filaDeProcessamento.pending;
 
-                if (pendentes > 0) {
+                if (pendentes > 0 || isScanning) {
                     fb.style.display = 'block';
                     fb.innerHTML = `
                         <div style="position:relative; z-index:1; padding:12px; color: #856404; background-color: #fff3cd; border-radius:4px; font-weight:normal;">
                             <div class="eproc-spinner" style="border-top-color:#856404; margin-right:8px; width:12px; height:12px;"></div>
-                            Aguarde a leitura das datas pelo servidor. Restam: <b>${pendentes}</b> processos...
+                            Aguarde a leitura das datas pelo servidor. Restam: <b>${pendentes > 0 ? pendentes : '...'}</b> processos...
                         </div>
                     `;
-                    setTimeout(cicloMonitoramento, 500); // Check otimizado e mais rápido
+                    setTimeout(cicloMonitoramento, 500); 
                 } else {
                     fb.style.display = 'none';
                     callbackAcao();
