@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.18
+// @version      45.19
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -2378,8 +2378,9 @@
 
                     comarcasArray.forEach(comarca => {
                         const perc = ((comarca.total / totalProcessosGeral) * 100).toFixed(1).replace('.', ',');
-                        html += `<h3 style="margin-top: 15px; margin-bottom: 5px; color: #0081c2;">${comarca.nome} - Total: ${comarca.total} (${perc}%)</h3>`;
-                        texto += `\n${comarca.nome.toUpperCase()} - Total: ${comarca.total} (${perc}%)\n`;
+                        const nomeComarcaFormatado = comarca.nome.toUpperCase();
+                        html += `<h3 style="margin-top: 15px; margin-bottom: 5px; color: #0081c2;">${nomeComarcaFormatado} - Total: ${comarca.total} (${perc}%)</h3>`;
+                        texto += `\n${nomeComarcaFormatado} - Total: ${comarca.total} (${perc}%)\n`;
                         texto += `----------------------------------------\n`;
                         html += `<ul style="margin-top: 5px;">`;
                         
