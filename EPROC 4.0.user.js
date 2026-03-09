@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.16
+// @version      45.17
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -266,7 +266,7 @@
 
         /* Controles Modernos baseados em CSS Grid (Perfeito alinhamento e animação) */
         .eproc-segmented-control { display: inline-grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: relative; z-index: 1; background-color: #f0f0f2; border-radius: 6px; padding: 3px; border: 1px solid #ddd; }
-        .eproc-segmented-control label { display: flex; align-items: center; justify-content: center; text-align: center; padding: 5px 14px; font-size: 12px; cursor: pointer; border-radius: 4px; color: #666; transition: color 0.2s ease; margin: 0 !important; user-select: none; line-height: 1.2; font-weight: normal; box-sizing: border-box; }
+        .eproc-segmented-control label { display: flex; align-items: center; justify-content: center; text-align: center; padding: 5px 0; width: 100px; font-size: 12px; cursor: pointer; border-radius: 4px; color: #666; transition: color 0.2s ease; margin: 0 !important; user-select: none; line-height: 1.2; font-weight: normal; box-sizing: border-box; }
         .eproc-segmented-control input[type="radio"] { display: none !important; margin: 0; }
         .eproc-segmented-control input[type="radio"]:checked + label { color: #0081c2; font-weight: bold; background-color: transparent !important; box-shadow: none !important; }
 
