@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.19
+// @version      45.25
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -872,7 +872,7 @@
                         CacheManager.checkNovosParalisados(idsParalisados).then(novosIds => {
                             novosIds.forEach(id => { if (mapTrs[id]) mapTrs[id].classList.add('tr-novo-paralisado'); });
                             alertaDiv.style.display = 'flex'; alertaDiv.innerHTML = '';
-                            const textoSpan = document.createElement('span'); textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} PROCESSOS PARALISADOS HÁ MAIS DE 30 DIAS! `; alertaDiv.appendChild(textoSpan);
+                            const textoSpan = document.createElement('span'); textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} PROCESSOS PARALISADOS HÁ 30 DIAS OU MAIS! `; alertaDiv.appendChild(textoSpan);
                             if (novosIds.length > 0) {
                                 const badge = document.createElement('span'); badge.className = 'eproc-badge-novo'; badge.textContent = `Há ${novosIds.length} novos paralisados`; alertaDiv.appendChild(badge);
                             }
@@ -2226,6 +2226,13 @@
 
             document.getElementById('eproc-rel-tramitacao-btn').onclick = (e) => {
                 e.preventDefault();
+                
+                // TRAVA DE SEGURANÇA: Garante que os relatórios e memórias só funcionarão em uma tabela totalmente carregada e validada
+                if (isScanning || filaDeProcessamento.active > 0 || filaDeProcessamento.pending > 0 || filaDeProcessamento.queue.length > 0) {
+                    alert('Aguarde! O EPROC ainda está processando as informações de origens, datas e varas em segundo plano.\nEssa trava garante que 100% dos processos serão contabilizados no seu relatório.\n\nTente clicar novamente em alguns instantes quando a tela terminar de carregar.');
+                    return;
+                }
+                
                 const linhas = getLinhasProcessos();
                 const dados = [];
                 const hoje = new Date();
@@ -2292,15 +2299,47 @@
                     return;
                 }
 
+                const savedStr = localStorage.getItem('eproc_tramitacao_saved');
+                let timerStr = localStorage.getItem('eproc_tramitacao_time');
+                let processosSalvos = [];
+
+                // Exclusão Automática: Expira a memória se já se passaram 12 horas (43.200.000 ms)
+                if (timerStr && Date.now() - parseInt(timerStr) > 12 * 60 * 60 * 1000) {
+                    localStorage.removeItem('eproc_tramitacao_saved');
+                    localStorage.removeItem('eproc_tramitacao_time');
+                    timerStr = null;
+                } else if (savedStr) {
+                    try {
+                        const parsed = JSON.parse(savedStr);
+                        // Suporta a conversão de objetos antigos ou a descompressão do novo formato array super leve
+                        processosSalvos = parsed.map(p => Array.isArray(p) ? { num: p[0], href: p[1], dias: p[2], comarca: p[3], vara: p[4] } : p);
+                    } catch(e) { console.error("Erro ao ler Cache de Tramitação", e); }
+                }
+                
+                let salvosMsg = processosSalvos.length > 0 
+                    ? `<div id="eproc-rel-saved-msg" style="font-size: 11px; color: #0081c2; font-weight: bold; text-align: center; margin-bottom: 10px;">(${processosSalvos.length} processos já memorizados)</div>`
+                    : `<div id="eproc-rel-saved-msg" style="font-size: 11px; color: #0081c2; font-weight: bold; text-align: center; margin-bottom: 10px; display: none;"></div>`;
+
                 const overlay = document.createElement('div'); overlay.className = 'eproc-modal-overlay';
                 overlay.innerHTML = `
                     <div class="modern-modal" style="width:340px;">
-                        <div class="modern-modal-header">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="#0081c2"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-                            Relatório de Tramitação
+                        <div class="modern-modal-header" style="display:flex; justify-content:space-between; align-items:center; padding-right:15px;">
+                            <div style="display:flex; align-items:center; gap:5px;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="#0081c2"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                                <span>Relatório de Tramitação</span>
+                            </div>
+                            <div style="display:flex; gap:5px;">
+                                <button id="btn-rel-save" title="Salvar processos desta tela para o próximo relatório" style="width: 26px; height: 26px; border-radius: 50%; border: 1px solid #0081c2; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #0081c2; padding: 0; transition: all 0.2s;" onmouseover="this.style.background='#0081c2'; this.style.color='#fff';" onmouseout="this.style.background='#fff'; this.style.color='#0081c2';">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+                                </button>
+                                <button id="btn-rel-clear" title="Apagar dados salvos" style="width: 26px; height: 26px; border-radius: 50%; border: 1px solid #d9534f; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #d9534f; padding: 0; transition: all 0.2s; font-size: 20px; font-weight: bold; line-height: 1;" onmouseover="this.style.background='#d9534f'; this.style.color='#fff';" onmouseout="this.style.background='#fff'; this.style.color='#d9534f';">
+                                    -
+                                </button>
+                            </div>
                         </div>
+                        ${salvosMsg}
                         <div class="modern-modal-body">
-                            <div class="modern-modal-desc">Selecione o tipo de relatório que deseja exportar para a área de transferência.</div>
+                            <div class="modern-modal-desc" style="margin-top: -10px;">Selecione o tipo de relatório que deseja exportar para a área de transferência.</div>
                             
                             <button id="btn-rel-idade" class="modern-btn-primary">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
@@ -2325,9 +2364,74 @@
 
                 document.getElementById('btn-rel-tram-cancel').onclick = fechar;
 
+                document.getElementById('btn-rel-save').onclick = (e) => {
+                    e.preventDefault();
+                    let added = 0;
+                    const existingNums = new Set(processosSalvos.map(p => p.num));
+                    dados.forEach(p => {
+                        if (!existingNums.has(p.num)) {
+                            processosSalvos.push(p);
+                            existingNums.add(p.num);
+                            added++;
+                        }
+                    });
+                    
+                    // COMPRESSÃO EXTREMA DE PAYLOAD: em vez de salvar objetos com chaves repetidas, salva arrays puros. Multiplica a capacidade máxima do memory card por ~4x, cabendo +30 mil cópias folgadas
+                    const compactados = processosSalvos.map(p => [p.num, p.href, p.dias, p.comarca, p.vara]);
+                    localStorage.setItem('eproc_tramitacao_saved', JSON.stringify(compactados));
+                    if (!localStorage.getItem('eproc_tramitacao_time')) {
+                        localStorage.setItem('eproc_tramitacao_time', Date.now().toString());
+                    }
+                    
+                    const msgDiv = document.getElementById('eproc-rel-saved-msg');
+                    if (msgDiv) {
+                        msgDiv.innerHTML = `(${processosSalvos.length} processos já memorizados)`;
+                        msgDiv.style.display = 'block';
+                    }
+                    if (typeof mostrarToast === 'function') {
+                        mostrarToast(added > 0 ? `Memorizou ${added} processos novos desta tela.` : "Todos os processos ativos nesta tela já estavam memorizados.");
+                    }
+                };
+
+                document.getElementById('btn-rel-clear').onclick = (e) => {
+                    e.preventDefault();
+                    if (processosSalvos.length === 0) {
+                        alert("Não há dados na memória para apagar.");
+                        return;
+                    }
+                    processosSalvos = [];
+                    localStorage.removeItem('eproc_tramitacao_saved');
+                    localStorage.removeItem('eproc_tramitacao_time');
+                    const msgDiv = document.getElementById('eproc-rel-saved-msg');
+                    if (msgDiv) {
+                        msgDiv.style.display = 'none';
+                        msgDiv.innerHTML = '';
+                    }
+                    if (typeof mostrarToast === 'function') {
+                        mostrarToast("Memória de processos apagada com sucesso!");
+                    }
+                };
+
+                const obterDadosConsolidados = () => {
+                    const existingNums = new Set(processosSalvos.map(p => p.num));
+                    const consolidado = [...processosSalvos];
+                    dados.forEach(p => {
+                        if (!existingNums.has(p.num)) {
+                            consolidado.push(p);
+                            existingNums.add(p.num);
+                        }
+                    });
+                    // Opcional: Para não manter lixo eternamente caso o usuário queira,
+                    // limpa a memória após o relatório final ser gerado.
+                    localStorage.removeItem('eproc_tramitacao_saved'); 
+                    localStorage.removeItem('eproc_tramitacao_time');
+                    return consolidado;
+                };
+
                 document.getElementById('btn-rel-idade').onclick = () => {
                     fechar();
-                    const dadosIdade = dados.filter(d => d.dias > 0);
+                    const dadosFinais = obterDadosConsolidados();
+                    const dadosIdade = dadosFinais.filter(d => d.dias > 0);
                     if (dadosIdade.length === 0) {
                         alert('Nenhuma data válida encontrada para avaliar a idade.');
                         return;
@@ -2341,14 +2445,16 @@
                     });
                     html += '</tbody></table>';
                     copiarParaClipboard(html, texto);
+                    if (typeof mostrarToast === 'function') mostrarToast(`Relatório por Idade (${dadosIdade.length} processos) copiado! Memória limpa.`);
                 };
 
                 document.getElementById('btn-rel-origem').onclick = () => {
                     fechar();
+                    const dadosFinais = obterDadosConsolidados();
                     
                     // Agrupar por Comarca e Vara
                     const comarcas = {};
-                    dados.forEach(item => {
+                    dadosFinais.forEach(item => {
                         if (!comarcas[item.comarca]) {
                             comarcas[item.comarca] = { total: 0, varas: {} };
                         }
@@ -2374,7 +2480,7 @@
                     let html = '<div style="font-family: Arial, sans-serif;">';
                     let texto = '';
 
-                    const totalProcessosGeral = dados.length;
+                    const totalProcessosGeral = dadosFinais.length;
 
                     comarcasArray.forEach(comarca => {
                         const perc = ((comarca.total / totalProcessosGeral) * 100).toFixed(1).replace('.', ',');
@@ -2399,6 +2505,7 @@
                     html += '</div>';
 
                     copiarParaClipboard(html, texto);
+                    if (typeof mostrarToast === 'function') mostrarToast(`Relatório por Origem (${dadosFinais.length} processos) copiado! Memória limpa.`);
                 };
             };
         }
