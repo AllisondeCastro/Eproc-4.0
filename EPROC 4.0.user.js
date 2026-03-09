@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.15
+// @version      45.16
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -182,59 +182,21 @@
         .eproc-btn-filtro-padrao:hover { background-color: #eef8fa !important; border-color: #0081c2 !important; }
 
         #eproc-criterios-lista { display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; align-items: center; }
-        .eproc-tag { background-color: #d9edf7; color: #31708f; border: 1px solid #bce8f1; border-radius: 14px; padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 6px; font-weight: 600; cursor: default; }
-        .eproc-tag-negativo { background-color: #f2dede !important; color: #a94442 !important; border-color: #ebccd1 !important; }
-        .eproc-tag-close { cursor: pointer; font-weight: bold; color: #d9534f !important; font-size: 14px; margin-left: 2px; opacity: 0.7; }
-        .eproc-tag-close:hover { opacity: 1; }
 
-        /* Container de feedback atualizado para o Design 2 */
-        #eproc-feedback {
-            margin-top: 15px;
-            display: none;
-            text-align: center;
-            position: relative;
-            min-height: 40px;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out; /* Suaviza o aparecimento/sumiço */
-        }
+        /* Layout das Tags de Filtro */
+        .eproc-tag { background-color: #fff !important; color: #0081c2 !important; border: 1px solid #0081c2 !important; border-radius: 6px !important; padding: 4px 26px 4px 10px !important; font-size: 11px !important; display: inline-flex !important; align-items: center; font-weight: 600 !important; cursor: default; position: relative !important; height: 24px; box-sizing: border-box; transition: all 0.2s; }
+        .eproc-tag-negativo { border-color: #d9534f !important; color: #d9534f !important; }
+        .eproc-tag-close { position: absolute !important; right: 8px !important; top: 50% !important; transform: translateY(-50%) !important; cursor: pointer !important; font-weight: bold !important; color: inherit !important; font-size: 14px !important; opacity: 0.2; transition: all 0.2s !important; line-height: 1 !important; pointer-events: auto !important; }
 
-        /* Design 2: Floating Glass */
-        .eproc-feedback-glass {
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #e0e0e0;
-            border-radius: 30px;
-            padding: 8px 22px;
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-        }
+        /* Hover das Tags e do Botão de Fechar */
+        .eproc-tag:hover .eproc-tag-close { opacity: 0.6; }
+        .eproc-tag-close:hover { opacity: 1 !important; color: #d9534f !important; }
 
-        .eproc-pulse {
-            width: 9px;
-            height: 9px;
-            background-color: #0081c2;
-            border-radius: 50%;
-            animation: pulse-blue 1.5s infinite;
-        }
-
-        @keyframes pulse-blue {
-            0% { box-shadow: 0 0 0 0 rgba(0, 129, 194, 0.7); }
-            70% { box-shadow: 0 0 0 12px rgba(0, 129, 194, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(0, 129, 194, 0); }
-        }
-
-        .eproc-feedback-glass {
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #ddd;
-            border-radius: 30px;
-            padding: 8px 22px;
-            display: inline-flex;
-            align-items: center;
-            gap: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-            border: 1px solid #e0e0e0;
-        }
+        /* Painel de Feedback Flutuante */
+        #eproc-feedback { margin-top: 15px; display: none; text-align: center; position: relative; min-height: 40px; opacity: 0; transition: opacity 0.3s ease-in-out; }
+        .eproc-feedback-glass { background: rgba(255, 255, 255, 0.95); border: 1px solid #e0e0e0; border-radius: 30px; padding: 8px 22px; display: inline-flex; align-items: center; gap: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .eproc-pulse { width: 9px; height: 9px; background-color: #0081c2; border-radius: 50%; animation: pulse-blue 1.5s infinite; }
+        @keyframes pulse-blue { 0% { box-shadow: 0 0 0 0 rgba(0, 129, 194, 0.7); } 70% { box-shadow: 0 0 0 12px rgba(0, 129, 194, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 129, 194, 0); } }
 
         .eproc-pulse {
             width: 9px;
@@ -1930,7 +1892,9 @@
 
                 let labelText = f.negativo ? f.label.replace(/"/g, '') : f.label;
 
+
                 t.innerHTML = `${labelText} <span class="eproc-tag-close">×</span>`;
+
                 t.querySelector('span').onclick = (e) => {
                     e.preventDefault(); e.stopPropagation();
                     if(f.tipo === 'data') { document.getElementById('eproc-data-inicio').value = ''; document.getElementById('eproc-data-fim').value = ''; }
