@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.29
+// @version      45.32
 // @description  Seleções inteligentes e Complementos ao sistema EPROC
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
@@ -31,9 +31,9 @@
     // ===========================================================================================
     if (document.body && document.body.textContent.includes("Ocorreu um erro nesta operação!")) {
         alert("⚠️ ERRO DE SOBRECARGA NO EPROC:\n\nO servidor do Tribunal não aguentou processar o volume de dados que você enviou.\n\nDICA MÁGICA: Clique no botão 'Voltar' do seu navegador (suas caixinhas selecionadas continuarão marcadas), desmarque alguns processos e envie em um lote menor.");
-        return; 
+        return;
     }
-    
+
     // ===========================================================================================
     // CONFIGURAÇÕES & CONSTANTES
     // ===========================================================================================
@@ -55,9 +55,9 @@
     const MAX_CONCURRENCY = 25;
 
     const paralisadosNovosSessao = new Set();
-    const regexData = /^\d{2}\/\d{2}\/\d{4}$/; 
+    const regexData = /^\d{2}\/\d{2}\/\d{4}$/;
 
-    let modoApenasSelecionados = false; 
+    let modoApenasSelecionados = false;
 
     function getLinhasProcessos() {
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
@@ -134,6 +134,8 @@
     // ===========================================================================================
     const style = document.createElement('style');
     style.innerHTML = `
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
         #tabelaLocalizadores tbody tr { contain: content; }
         #tabelaLocalizadores { width: 100% !important; table-layout: auto !important; border-collapse: collapse !important; }
         #tabelaLocalizadores > tbody > tr > th, #tabelaLocalizadores > tbody > tr > td { padding: 5px 4px !important; vertical-align: middle !important; }
@@ -165,7 +167,7 @@
         .eproc-btn-icon { width: 34px !important; padding: 6px 0 !important; text-align: center; margin-left: 5px; font-size: 16px !important; line-height: 1 !important; display: inline-flex !important; justify-content: center; align-items: center; }
         .eproc-btn-icon svg { fill: currentColor; }
 
-        #eproc-relatorio-btn, #eproc-selecionar-paralisados-btn { background-color: #fff; color: #d9534f; border: 1px solid #fff; padding: 4px 12px; font-size: 11px; border-radius: 4px; cursor: pointer; font-weight: bold; text-transform: none; margin-left: 10px; transition: all 0.2s; }
+        #eproc-relatorio-btn, #eproc-selecionar-paralisados-btn { background-color: #fff; color: #d9534f; border: 1px solid #fff; padding: 4px 12px; font-size: 11px; border-radius: 4px; cursor: pointer; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; text-transform: none; margin-left: 10px; transition: all 0.2s; }
         #eproc-relatorio-btn:hover, #eproc-selecionar-paralisados-btn:hover { background-color: #f8f8f8; color: #c9302c; }
 
         #eproc-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: #4cae4c; color: white; padding: 10px 25px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); font-weight: bold; font-size: 14px; z-index: 99999; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
@@ -176,20 +178,20 @@
         .eproc-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
         .eproc-form-control { border: 1px solid #ccc; padding: 6px 8px; font-size: 13px; border-radius: 4px; color: #333; }
 
-        .eproc-btn { display: inline-block; padding: 6px 12px; font-size: 13px; font-weight: 500; text-align: center; cursor: pointer; border: 1px solid #ccc; border-radius: 6px !important; background-image: linear-gradient(to bottom, #fff 0, #e0e0e0 100%); color: #333; transition: all 0.2s; }
-        .eproc-btn:hover { background-image: none; background-color: #e0e0e0; border-color: #bbb; }
-        
+        .eproc-btn { display: inline-block; padding: 6px 12px; font-size: 13px; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; text-align: center; cursor: pointer; border: 1px solid #ccc; border-radius: 6px !important; background: #fff; color: #0081c2; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: all 0.2s; }
+        .eproc-btn:hover { background-color: #eef8fa; border-color: #bbb; }
+
         .eproc-btn-secondary { background: #fff !important; color: #0081c2; }
         .eproc-btn-secondary:hover { background-color: #eef8fa !important; border-color: #bbb; }
-        .eproc-btn-danger { background: #fff !important; color: #d9534f; }
+        .eproc-btn-danger { background: #fff !important; color: #d9534f; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .eproc-btn-danger:hover { background-color: #d9534f !important; color: #fff; border-color: #d9534f; }
         .eproc-btn-success { background-image: linear-gradient(to bottom, #5cb85c 0, #419641 100%); border-color: #4cae4c; color: #fff; }
 
-        #eproc-buscar { background-color: #007ebd !important; color: #fff !important; border: 1px solid #006ba0 !important; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; font-weight: normal !important; background-image: none !important; padding: 5px 12px !important; border-radius: 4px !important; }
+        #eproc-buscar { background-color: #0081c2 !important; color: #fff !important; border: 1px solid #006ba0 !important; font-family: 'Roboto', Arial, sans-serif !important; font-size: 14px !important; font-weight: normal !important; background-image: none !important; padding: 6px 16px !important; border-radius: 4px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.15) !important; }
         #eproc-buscar:hover { background-color: #006ba0 !important; border-color: #005580 !important; cursor: pointer; }
 
         #eproc-add-btn:hover { background-color: #eef8fa !important; border-color: #bbb !important; color: #0081c2 !important; background-image: none !important; }
-        .eproc-btn-filtro-padrao { background: #fff !important; color: #0081c2 !important; font-weight: normal !important; background-image: none !important; }
+        .eproc-btn-filtro-padrao { background: #fff !important; color: #0081c2 !important; font-weight: normal !important; font-family: 'Roboto', Arial, sans-serif !important; background-image: none !important; box-shadow: 0 1px 3px rgba(0,0,0,0.1) !important; }
         .eproc-btn-filtro-padrao:hover { background-color: #eef8fa !important; border-color: #bbb !important; }
 
         #eproc-criterios-lista { display: flex; flex-wrap: wrap; gap: 6px; min-height: 20px; align-items: center; }
@@ -275,31 +277,31 @@
         .eproc-date-label { padding: 0 8px; font-size: 12px; color: #555; background: #f8f8f9; display: flex; align-items: center; border-right: 1px solid #eee; }
         .eproc-date-group input[type="date"] { border: none; padding: 0 8px; font-size: 12px; outline: none; color: #333; cursor: pointer; background: transparent; height: 100%; box-sizing: border-box; }
         .eproc-date-group input[type="date"]:first-of-type { border-right: 1px solid #eee; }
-        .eproc-btn-filtrar-integrado { background-color: transparent; border: none; border-left: 1px solid #eee; padding: 0 15px; font-size: 12px; cursor: pointer; font-weight: normal; color: #0081c2; transition: background 0.2s, color 0.2s; margin: 0; height: 100%; box-sizing: border-box; }
+        .eproc-btn-filtrar-integrado { background-color: transparent; border: none; border-left: 1px solid #eee; padding: 0 15px; font-size: 12px; cursor: pointer; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; color: #0081c2; transition: background 0.2s, color 0.2s; margin: 0; height: 100%; box-sizing: border-box; }
         .eproc-btn-filtrar-integrado:hover { background-color: #eef8fa; color: #0081c2; }
         .modern-modal { background: #fff; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: 1px solid #e0e0e0; overflow: hidden; margin: 0 auto; font-family: Arial, sans-serif; }
         .modern-modal-header { background: #fdfdfd; padding: 15px 20px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; color: #333; font-weight: bold; font-size: 14px; }
         .modern-modal-body { padding: 20px; }
         .modern-modal-desc { font-size: 12px; color: #666; margin-bottom: 15px; text-align: center; line-height: 1.4; }
-        
+
         .eproc-segmented-full { display: grid; width: 100%; margin-bottom: 15px; box-sizing: border-box; }
         .eproc-segmented-full label { flex: 1; text-align: center; width: auto; flex-direction: column; justify-content: center; align-items: center; padding: 6px 4px; line-height: 1.3; display: flex !important; }
-        
-        .modern-btn-primary { width: 100%; background: #0081c2; color: white; border: none; border-radius: 6px; padding: 10px; font-size: 13px; font-weight: bold; cursor: pointer; margin-bottom: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: background 0.2s; text-align: center; }
+
+        .modern-btn-primary { width: 100%; background: #0081c2; color: white; border: none; border-radius: 6px; padding: 10px; font-size: 13px; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; cursor: pointer; margin-bottom: 10px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: background 0.2s; text-align: center; }
         .modern-btn-primary:hover { background: #006a9e; }
-        .modern-btn-secondary { width: 100%; background: #fff; color: #444; border: 1px solid #ccc; border-radius: 6px; padding: 9px; font-size: 13px; font-weight: bold; cursor: pointer; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: all 0.2s; text-align: center; }
-        .modern-btn-secondary:hover { background: #f0f0f2; color: #333; border-color: #bbb; }
-        .modern-btn-cancel { width: 100%; background: transparent; color: #888; border: none; font-size: 12px; cursor: pointer; padding: 5px; transition: color 0.2s; font-weight: bold; text-align: center; justify-content: center; display: flex; }
+        .modern-btn-secondary { width: 100%; background: #fff; color: #0081c2; border: 1px solid #ccc; border-radius: 6px; padding: 9px; font-size: 13px; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; cursor: pointer; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 8px; transition: all 0.2s; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .modern-btn-secondary:hover { background: #eef8fa; color: #0081c2; border-color: #bbb; }
+        .modern-btn-cancel { width: 100%; background: transparent; color: #888; border: none; font-size: 12px; cursor: pointer; padding: 5px; transition: color 0.2s; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; text-align: center; justify-content: center; display: flex; }
         .modern-btn-cancel:hover { color: #d9534f; text-decoration: underline; }
 
         /* Botões do Menu Grid (Novos Relatórios) */
         .modern-btn-grid {
-            background: #fff; color: #444; border: 1px solid #ccc; border-radius: 8px; padding: 12px 5px;
-            font-size: 12px; font-weight: bold; cursor: pointer; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;
+            background: #fff; color: #0081c2; border: 1px solid #ccc; border-radius: 8px; padding: 12px 5px;
+            font-size: 12px; font-weight: normal; font-family: 'Roboto', Arial, sans-serif; cursor: pointer; display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
         .modern-btn-grid:hover {
-            background: #f0f8ff; border-color: #0081c2; color: #0081c2; transform: translateY(-2px);
+            background: #eef8fa; border-color: #0081c2; color: #0081c2; transform: translateY(-2px);
             box-shadow: 0 4px 10px rgba(0,0,0,0.08);
         }
         .modern-btn-grid svg { fill: currentColor; }
@@ -865,9 +867,9 @@
                         CacheManager.checkNovosParalisados(idsParalisados).then(novosIds => {
                             novosIds.forEach(id => { if (mapTrs[id]) mapTrs[id].classList.add('tr-novo-paralisado'); });
                             alertaDiv.style.display = 'flex'; alertaDiv.innerHTML = '';
-                            const textoSpan = document.createElement('span'); 
+                            const textoSpan = document.createElement('span');
                             const txtParal = trsParalisados.length === 1 ? 'PROCESSO PARALISADO' : 'PROCESSOS PARALISADOS';
-                            textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} ${txtParal} HÁ 30 DIAS OU MAIS! `; 
+                            textoSpan.textContent = `⚠️ HÁ ${trsParalisados.length} ${txtParal} HÁ 30 DIAS OU MAIS! `;
                             alertaDiv.appendChild(textoSpan);
                             if (novosIds.length > 0) {
                                 const txtNovos = novosIds.length === 1 ? 'novo paralisado' : 'novos paralisados';
@@ -1065,7 +1067,7 @@
     function aplicarVisibilidadeSelecionados() {
         const btnEye = document.getElementById('eproc-toggle-visibilidade');
         if (!btnEye) return;
-        
+
         if (modoApenasSelecionados) {
             btnEye.querySelector('.eye-open').style.display = 'none';
             btnEye.querySelector('.eye-closed').style.display = 'block';
@@ -1085,7 +1087,7 @@
         const count = document.querySelectorAll('tr[class^="infraTr"] input[type="checkbox"]:checked').length;
         const nav = document.getElementById('eproc-nav-flutuante');
         const btnEye = document.getElementById('eproc-toggle-visibilidade');
-        
+
         if (count > 0) {
             if (nav) nav.style.display = 'flex';
             if (btnEye) btnEye.style.display = 'flex';
@@ -1451,9 +1453,9 @@
         window.aplicarDistribuicaoGrupoGenerico = function(targetValue) {
             const linhasAlvo = grupos[targetValue].linhas;
             const nomeGrupo = grupos[targetValue].nome;
-            
+
             fecharOverlay();
-            
+
             const painelLoc = document.getElementById('conteudoAlterarLocalizadores');
             if (painelLoc && painelLoc.style.display === 'none') {
                 const legendLoc = document.querySelector('#fldAlterarLocalizadores legend');
@@ -1522,6 +1524,60 @@
         }
     }
 
+    function salvarPaginaAtual() {
+        try {
+            const selPagina = document.getElementById('selPagina');
+            if (selPagina && selPagina.value) {
+                sessionStorage.setItem('eproc_pagina_atual', selPagina.value);
+            }
+        } catch(e) {}
+    }
+
+    function restaurarPaginaAtual() {
+        try {
+            const paginaSalva = sessionStorage.getItem('eproc_pagina_atual');
+            if (!paginaSalva) return;
+            sessionStorage.removeItem('eproc_pagina_atual');
+
+            // Aguarda o DOM estar pronto para encontrar selPagina
+            const tentarRestaurar = () => {
+                const selPagina = document.getElementById('selPagina');
+                if (!selPagina) return;
+                const optionExiste = selPagina.querySelector(`option[value="${paginaSalva}"]`);
+                if (!optionExiste) return;
+                if (selPagina.value === paginaSalva) return; // já está na página correta
+
+                // Intercepta o próximo submit do formulário para injetar selPagina
+                const form = document.getElementById('frmProcessoLista');
+                if (form) {
+                    // Aborda via hidden input para compatibilidade máxima com EPROC
+                    let hidden = form.querySelector('input[name="selPagina"][data-eproc-restore]');
+                    if (!hidden) {
+                        hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'selPagina';
+                        hidden.setAttribute('data-eproc-restore', '1');
+                        form.appendChild(hidden);
+                    }
+                    hidden.value = paginaSalva;
+                }
+
+                // Seleciona no dropdown e dispara a navegação nativa do EPROC
+                selPagina.value = paginaSalva;
+                // Usa o handler nativo sem bubbling para não causar loops
+                const evt = new Event('change');
+                selPagina.dispatchEvent(evt);
+            };
+
+            // Pequeno delay para garantir que o DOM do EPROC carregou completamente
+            if (document.readyState === 'complete') {
+                tentarRestaurar();
+            } else {
+                window.addEventListener('load', tentarRestaurar, { once: true });
+            }
+        } catch(e) {}
+    }
+
     function melhorarGerenciarLocalizadores() {
         if (typeof window.alterarLocalizador === 'function') {
             const originalAlterarLocalizador = window.alterarLocalizador;
@@ -1544,6 +1600,7 @@
                 if (isNovoVazio) {
                     if (hasDesativar) {
                         if (typeof window.validarSelecao === 'function') {
+                            salvarPaginaAtual();
                             window.validarSelecao();
                         } else {
                             alert('Erro: Função nativa de exclusão do EPROC não foi encontrada.');
@@ -1553,6 +1610,7 @@
                         if (novoLoc) novoLoc.focus();
                     }
                 } else {
+                    salvarPaginaAtual();
                     originalAlterarLocalizador();
                 }
             };
@@ -1873,7 +1931,7 @@
                 }
 
                 document.getElementById('eproc-contador').textContent = `Itens selecionados: ${count}`;
-                
+
                 if (modoApenasSelecionados) {
                     aplicarVisibilidadeSelecionados();
                 } else {
@@ -1920,7 +1978,7 @@
                     linhas[i].style.borderLeft = '';
                 }
                 document.getElementById('eproc-contador').textContent = "Itens selecionados: 0";
-                
+
                 if (modoApenasSelecionados) {
                     modoApenasSelecionados = false;
                     aplicarVisibilidadeSelecionados();
@@ -2114,7 +2172,7 @@
             document.getElementById('eproc-dist-magica').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicao(); };
             document.getElementById('eproc-dist-digito').onclick = (e) => { e.preventDefault(); abrirAssistenteDistribuicaoDigitos(); };
             document.getElementById('eproc-modo-exclusao').onclick = (e) => { e.preventDefault(); toggleModoExclusao(); };
-            
+
             document.getElementById('eproc-toggle-visibilidade').onclick = (e) => {
                 e.preventDefault();
                 modoApenasSelecionados = !modoApenasSelecionados;
@@ -2241,14 +2299,8 @@
 
             document.getElementById('eproc-rel-tramitacao-btn').onclick = (e) => {
                 e.preventDefault();
-                
-                if (isScanning || filaDeProcessamento.active > 0 || filaDeProcessamento.pending > 0 || filaDeProcessamento.queue.length > 0) {
-                    mostrarRastreamentoPendente(() => {
-                        document.getElementById('eproc-rel-tramitacao-btn').click();
-                    });
-                    return;
-                }
-                
+
+                const abrirModalRelatorio = () => {
                 const linhas = getLinhasProcessos();
                 const dados =[];
                 const hoje = new Date();
@@ -2257,7 +2309,7 @@
                 const tabela = linhas.length > 0 ? linhas[0].closest('table') : null;
                 let idxReu = -1;
                 let idxClasse = -1;
-                
+
                 if (tabela) {
                     const header = tabela.querySelector('tr.infraTr') || tabela.querySelector('tr');
                     if (header) {
@@ -2271,21 +2323,21 @@
 
                 linhas.forEach(tr => {
                     if (tr.querySelector('th')) return;
-                    
+
                     const chk = tr.querySelector('input[type="checkbox"]');
                     if (!chk) return;
-                    
+
                     const displayStyle = window.getComputedStyle(tr).display;
                     if (displayStyle === 'none') return;
 
                     const linkProc = tr.querySelector('a[href*="acao=processo_selecionar"]');
                     const tdData = tr.querySelector('.eproc-col-data-nucleo');
                     const tdOrigem = tr.querySelector('.eproc-col-origem-nucleo');
-                    
+
                     if (linkProc) {
                         const numProc = linkProc.textContent.trim();
                         const hrefProc = linkProc.href;
-                        
+
                         let dataObj = null;
                         let diffDays = 0;
                         if (tdData) {
@@ -2297,21 +2349,21 @@
                                 diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                             }
                         }
-                        
+
                         let comarcaStr = "NÃO RECONHECIDA";
                         let varaStr = tdOrigem ? tdOrigem.textContent.trim() : "-";
-                        
+
                         if (tdOrigem) {
                             const textoOrigem = tdOrigem.textContent.trim();
                             const parsed = parseOrigem(textoOrigem);
                             let isUnica = false;
-                            
+
                             if (textoOrigem === "..." || textoOrigem === "-") {
                                 varaStr = "Vara Única";
                             } else if (parsed) {
                                 isUnica = (parsed.vara === "ÚNICA" || parsed.vara === "UNICA" || parsed.vara === "-");
                                 const optTarget = findLocalizadorIdNoDropdown(parsed);
-                                
+
                                 if (optTarget && optTarget.value !== "null") {
                                     comarcaStr = parsed.comarca;
                                     varaStr = optTarget.text.replace(/^.*?NB\/JC\s*(-\s*)?/i, '').replace(/\s*\([A-Z]\).*$/i, '').replace(/\s*✅.*$/, '').trim();
@@ -2333,27 +2385,27 @@
                             reuStr = reuStr.replace(/^[-,]\s*|\s*[-,]$/g, '').trim();
                             if(!reuStr) reuStr = "NÃO IDENTIFICADO";
                         }
-                        
+
                         let classeStr = "NÃO IDENTIFICADA";
                         let isTutela = false;
                         if (idxClasse > -1 && tr.cells[idxClasse]) {
                             let rawHtml = tr.cells[idxClasse].innerHTML;
                             let fullText = (tr.cells[idxClasse].textContent || "").toUpperCase();
-                            
+
                             if (fullText.includes("ANTECIPAÇÃO DE TUTELA") || fullText.includes("ANTECIPACAO DE TUTELA") || fullText.includes("TUTELA ANTECIPADA")) {
                                 isTutela = true;
                             }
-                            
+
                             let spacedHtml = rawHtml.replace(/<br\s*[\/]?>/gi, '\n')
                                                     .replace(/<\/div>/gi, '\n')
                                                     .replace(/<\/p>/gi, '\n')
                                                     .replace(/<span[^>]*>/gi, '\n')
                                                     .replace(/<\/span>/gi, '\n');
-                            
+
                             let tempDiv = document.createElement('div');
                             tempDiv.innerHTML = spacedHtml;
                             let cleanText = (tempDiv.textContent || tempDiv.innerText || "");
-                            
+
                             let lines = cleanText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
                             if (lines.length > 0) {
                                 classeStr = lines[0].toUpperCase();
@@ -2392,7 +2444,7 @@
 
                             if(!classeStr) classeStr = "NÃO IDENTIFICADA";
                         }
-                        
+
                         dados.push({ num: numProc, href: hrefProc, dias: diffDays, comarca: comarcaStr, vara: varaStr, reu: reuStr, classe: classeStr, isTutela: isTutela });
                     }
                 });
@@ -2411,8 +2463,8 @@
                         processosSalvos = parsed.map(p => Array.isArray(p) ? { num: p[0], href: p[1], dias: p[2], comarca: p[3], vara: p[4], reu: p[5] || "NÃO IDENTIFICADO", classe: p[6] || "NÃO IDENTIFICADA", isTutela: p[7] || false } : p);
                     } catch(e) {}
                 }
-                
-                let salvosMsg = processosSalvos.length > 0 
+
+                let salvosMsg = processosSalvos.length > 0
                     ? `<div id="eproc-rel-saved-msg" style="font-size: 11px; color: #0081c2; font-weight: bold; text-align: center; margin-bottom: 10px;">(${processosSalvos.length} processos já memorizados)</div>`
                     : `<div id="eproc-rel-saved-msg" style="font-size: 11px; color: #0081c2; font-weight: bold; text-align: center; margin-bottom: 10px; display: none;"></div>`;
 
@@ -2436,7 +2488,7 @@
                         ${salvosMsg}
                         <div class="modern-modal-body">
                             <div class="modern-modal-desc" style="margin-top: -10px;">Selecione o tipo de relatório que deseja exportar para a área de transferência.</div>
-                            
+
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
                                 <button id="btn-rel-idade" class="modern-btn-grid">
                                     <svg width="24" height="24" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
@@ -2472,29 +2524,83 @@
 
                 document.getElementById('btn-rel-save').onclick = (e) => {
                     e.preventDefault();
+                    // Capturar TODOS os processos visíveis da tela atual no momento do clique
+                    const dadosAtuais = [];
+                    const linhasAtuais = getLinhasProcessos();
+                    const hoje2 = new Date(); hoje2.setHours(0,0,0,0);
+                    linhasAtuais.forEach(tr => {
+                        if (tr.querySelector('th')) return;
+                        const chk = tr.querySelector('input[type="checkbox"]');
+                        if (!chk) return;
+                        const displayStyle = window.getComputedStyle(tr).display;
+                        if (displayStyle === 'none') return;
+                        const linkProc2 = tr.querySelector('a[href*="acao=processo_selecionar"]');
+                        if (!linkProc2) return;
+                        const numProc2 = linkProc2.textContent.trim();
+                        const hrefProc2 = linkProc2.href;
+                        const tdData2 = tr.querySelector('.eproc-col-data-nucleo');
+                        const tdOrigem2 = tr.querySelector('.eproc-col-origem-nucleo');
+                        let dataObj2 = null; let diffDays2 = 0;
+                        if (tdData2) {
+                            dataObj2 = obterDataSegura(tdData2.textContent.trim());
+                            if (dataObj2) { dataObj2.setHours(0,0,0,0); diffDays2 = Math.ceil(Math.abs(hoje2 - dataObj2) / (1000*60*60*24)); }
+                        }
+                        let comarcaStr2 = "NÃO RECONHECIDA"; let varaStr2 = tdOrigem2 ? tdOrigem2.textContent.trim() : "-";
+                        if (tdOrigem2) {
+                            const textoOrigem2 = tdOrigem2.textContent.trim();
+                            const parsed2 = parseOrigem(textoOrigem2);
+                            if (textoOrigem2 === "..." || textoOrigem2 === "-") { varaStr2 = "Vara Única"; }
+                            else if (parsed2) {
+                                const isUnica2 = (parsed2.vara === "ÚNICA" || parsed2.vara === "UNICA" || parsed2.vara === "-");
+                                const optTarget2 = findLocalizadorIdNoDropdown(parsed2);
+                                if (optTarget2 && optTarget2.value !== "null") {
+                                    comarcaStr2 = parsed2.comarca;
+                                    varaStr2 = optTarget2.text.replace(/^.*?NB\/JC\s*(-\s*)?/i, '').replace(/\s*\([A-Z]\).*$/i, '').replace(/\s*✅.*$/, '').trim();
+                                    if (isUnica2 || !varaStr2 || varaStr2 === "-") varaStr2 = "Vara Única";
+                                } else { comarcaStr2 = parsed2.comarca; varaStr2 = isUnica2 ? "Vara Única" : parsed2.vara + " " + parsed2.comarca + " (Sem Localizador Ativo)"; }
+                            }
+                        }
+                        if (varaStr2 === "-" || varaStr2 === "..." || varaStr2 === "") varaStr2 = "Vara Única";
+                        let reuStr2 = idxReu > -1 && tr.cells[idxReu] ? tr.cells[idxReu].textContent.trim().replace(/\s+/g, ' ') : "NÃO IDENTIFICADO";
+                        if (reuStr2 && reuStr2 !== "NÃO IDENTIFICADO") {
+                            reuStr2 = reuStr2.replace(/(?:\s*-)?\s*\(?Sem Procurador associado\)?/gi, '').replace(/(?:\s*-)?\s*\(?Sem Advogado\)?/gi, '').replace(/^[-,]\s*|\s*[-,]$/g, '').trim();
+                            if(!reuStr2) reuStr2 = "NÃO IDENTIFICADO";
+                        }
+                        let classeStr2 = "NÃO IDENTIFICADA";
+                        if (idxClasse > -1 && tr.cells[idxClasse]) {
+                            let tempDiv2 = document.createElement('div');
+                            tempDiv2.innerHTML = tr.cells[idxClasse].innerHTML.replace(/<br\s*[/]?>/gi,'\n').replace(/<\/div>/gi,'\n');
+                            let lines2 = (tempDiv2.textContent||'').split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+                            if(lines2.length>0) { classeStr2 = lines2[0].toUpperCase().replace(/[-|()]*$/g,'').trim(); }
+                            if(!classeStr2) classeStr2 = "NÃO IDENTIFICADA";
+                        }
+                        const isTutela2 = idxClasse > -1 && tr.cells[idxClasse] ? (tr.cells[idxClasse].textContent||'').toUpperCase().includes('TUTELA') : false;
+                        dadosAtuais.push({ num: numProc2, href: hrefProc2, dias: diffDays2, comarca: comarcaStr2, vara: varaStr2, reu: reuStr2, classe: classeStr2, isTutela: isTutela2 });
+                    });
+
                     let added = 0;
                     const existingNums = new Set(processosSalvos.map(p => p.num));
-                    dados.forEach(p => {
+                    dadosAtuais.forEach(p => {
                         if (!existingNums.has(p.num)) {
                             processosSalvos.push(p);
                             existingNums.add(p.num);
                             added++;
                         }
                     });
-                    
-                    const compactados = processosSalvos.map(p =>[p.num, p.href, p.dias, p.comarca, p.vara, p.reu, p.classe, p.isTutela]);
+
+                    const compactados = processosSalvos.map(p => [p.num, p.href, p.dias, p.comarca, p.vara, p.reu, p.classe, p.isTutela]);
                     localStorage.setItem('eproc_tramitacao_saved', JSON.stringify(compactados));
                     if (!localStorage.getItem('eproc_tramitacao_time')) {
                         localStorage.setItem('eproc_tramitacao_time', Date.now().toString());
                     }
-                    
+
                     const msgDiv = document.getElementById('eproc-rel-saved-msg');
                     if (msgDiv) {
                         msgDiv.innerHTML = `(${processosSalvos.length} processos já memorizados)`;
                         msgDiv.style.display = 'block';
                     }
                     if (typeof mostrarToast === 'function') {
-                        mostrarToast(added > 0 ? `Memorizou ${added} processos novos desta tela.` : "Todos os processos ativos nesta tela já estavam memorizados.");
+                        mostrarToast(added > 0 ? `Memorizou ${added} processos novos desta tela (${dadosAtuais.length} total).` : "Todos os processos desta tela já estavam memorizados.");
                     }
                 };
 
@@ -2518,6 +2624,7 @@
                 };
 
                 const obterDadosConsolidados = () => {
+                    // Mescla processos salvos + processos da tela atual, sem apagar a memória
                     const existingNums = new Set(processosSalvos.map(p => p.num));
                     const consolidado = [...processosSalvos];
                     dados.forEach(p => {
@@ -2526,8 +2633,7 @@
                             existingNums.add(p.num);
                         }
                     });
-                    localStorage.removeItem('eproc_tramitacao_saved'); 
-                    localStorage.removeItem('eproc_tramitacao_time');
+                    // NÃO apaga localStorage aqui — apenas exclusão manual ou expiração de 12h apagam
                     return consolidado;
                 };
 
@@ -2554,14 +2660,14 @@
                 document.getElementById('btn-rel-origem').onclick = () => {
                     fechar();
                     const dadosFinais = obterDadosConsolidados();
-                    
+
                     const comarcas = {};
                     dadosFinais.forEach(item => {
                         if (!comarcas[item.comarca]) {
                             comarcas[item.comarca] = { total: 0, varas: {} };
                         }
                         comarcas[item.comarca].total++;
-                        
+
                         if (!comarcas[item.comarca].varas[item.vara]) {
                             comarcas[item.comarca].varas[item.vara] = 0;
                         }
@@ -2588,13 +2694,13 @@
                         texto += `\n${nomeComarcaFormatado} - Total: ${comarca.total} (${perc}%)\n`;
                         texto += `----------------------------------------\n`;
                         html += `<ul style="margin-top: 5px;">`;
-                        
+
                         const varasNomes = Object.keys(comarca.varas).sort();
-                        
+
                         varasNomes.forEach(vara => {
                             const numProcessos = comarca.varas[vara];
                             const labelProcessos = numProcessos === 1 ? "processo" : "processos";
-                            
+
                             html += `<li>${vara}: <b>${numProcessos} ${labelProcessos}</b></li>`;
                             texto += `${vara}: ${numProcessos} ${labelProcessos}\n`;
                         });
@@ -2606,22 +2712,121 @@
                     if (typeof mostrarToast === 'function') mostrarToast(`Relatório por Origem (${dadosFinais.length} processos) copiado! Memória limpa.`);
                 };
 
+                const CANONICOS_REU = [
+                    { kw: ['ITAÚ','ITAU'], c: 'ITAÚ' },
+                    { kw: ['BRADESCO'], c: 'BRADESCO' },
+                    { kw: ['BMG'], c: 'BMG' },
+                    { kw: ['SANTANDER'], c: 'SANTANDER' },
+                    { kw: ['CAIXA ECONOMICA','CAIXA ECONÔMICA','CAIXA FEDERAL'], c: 'CAIXA ECONÔMICA FEDERAL' },
+                    { kw: ['NUBANK','NU PAGAMENTO','NU FINANCEIRA'], c: 'NUBANK' },
+                    { kw: ['BANCO INTER','INTER BANK'], c: 'INTER' },
+                    { kw: ['BANCO C6','C6 BANK','C6 CONSIG','C6 S'], c: 'C6' },
+                    { kw: ['BANCO PAN','PAN S.','PAN S/A'], c: 'PAN' },
+                    { kw: ['BTG'], c: 'BTG' },
+                    { kw: ['SAFRA'], c: 'SAFRA' },
+                    { kw: ['VOTORANTIM'], c: 'VOTORANTIM' },
+                    { kw: ['MERCANTIL DO BRASIL','MERCANTIL BRASIL'], c: 'MERCANTIL DO BRASIL' },
+                    { kw: ['BANCO DO BRASIL'], c: 'BANCO DO BRASIL' },
+                    { kw: ['DAYCOVAL'], c: 'DAYCOVAL' },
+                    { kw: ['MASTER'], c: 'MASTER' },
+                    { kw: ['AGIBANK'], c: 'AGIBANK' },
+                    { kw: ['OMNI'], c: 'OMNI' },
+                    { kw: ['PORTOSEG'], c: 'PORTOSEG' },
+                    { kw: ['HONDA'], c: 'HONDA' },
+                    { kw: ['YAMAHA'], c: 'YAMAHA' },
+                    { kw: ['TOYOTA'], c: 'TOYOTA' },
+                    { kw: ['SICOOB'], c: 'SICOOB' },
+                    { kw: ['SICREDI'], c: 'SICREDI' },
+                    { kw: ['SERASA'], c: 'SERASA' },
+                    { kw: ['TELEFÔNICA','TELEFONICA'], c: 'TELEFÔNICA/VIVO' },
+                    { kw: ['CLARO'], c: 'CLARO' },
+                    { kw: ['PICPAY'], c: 'PICPAY' },
+                    { kw: ['RENNER'], c: 'RENNER' },
+                    { kw: ['CREFISA'], c: 'CREFISA' },
+                    { kw: ['CREDISETE'], c: 'CREDISETE' },
+                    { kw: ['ARACOOP'], c: 'ARACOOP' },
+                    { kw: ['AZUL LINHAS','AZUL AIR'], c: 'AZUL LINHAS AÉREAS' },
+                    { kw: ['CAPITAL CONSIG'], c: 'CAPITAL CONSIG' },
+                    { kw: ['BNP PARIBAS'], c: 'BNP PARIBAS' },
+                    { kw: ['SEM PARAR'], c: 'SEM PARAR' },
+                    { kw: ['FACTA'], c: 'FACTA' },
+                    { kw: ['BRASIL CARD','BRASIL CARDS'], c: 'BRASIL CARD' },
+                    { kw: ['CELCOIN'], c: 'CELCOIN' },
+                    { kw: ['CLOUDWALK'], c: 'CLOUDWALK' },
+                    { kw: ['SOLUCOES FINANCEIRAS','SOLUÇÕES FINANCEIRAS'], c: 'SOLUÇÕES FINANCEIRAS' },
+                ];
+
+                const normalizarEsplitarReu = (reuStr) => {
+                    if (!reuStr || reuStr === 'NÃO IDENTIFICADO') return [reuStr || 'NÃO IDENTIFICADO'];
+
+                    // Insere marcador de split após sufixos jurídicos quando seguido de initial maiúscula (litisconsórcio sem separador)
+                    let marcado = reuStr
+                        .replace(/(S\.A\.?|S\/A|LTDA\.?|EIRELI)\s+(?=[A-ZÁÉÍÓÚÃÕ])/g, '$1§SPLIT§')
+                        .replace(/\s*,\s*/g, '§SPLIT§')
+                        .replace(/\s*;\s*/g, '§SPLIT§');
+
+                    const partes = marcado.split('§SPLIT§')
+                        .map(p => p.trim())
+                        .filter(p => p.length > 2);
+
+                    const resultado = new Set();
+
+                    partes.forEach(parte => {
+                        const upper = parte.toUpperCase().replace(/\s+/g, ' ').trim();
+
+                        // Tenta mapeamento canônico
+                        let encontrado = false;
+                        for (const { kw, c } of CANONICOS_REU) {
+                            for (const k of kw) {
+                                if (upper.includes(k.toUpperCase())) {
+                                    resultado.add(c);
+                                    encontrado = true;
+                                    break;
+                                }
+                            }
+                            if (encontrado) break;
+                        }
+
+                        if (!encontrado) {
+                            // Limpa sufixos jurídicos e descritores genéricos bancários
+                            let limpa = upper
+                                .replace(/\b(S\.?\s*\/?\s*A\.?|LTDA\.?|EIRELI|S\.A\.S\.?)\b\.?\s*/g, '')
+                                .replace(/\b(SOCIEDADE DE CREDITO|CREDITO FINANCIAMENTO E INVESTIMENTO|CREDITO E INVESTIMENTO|FINANCIAMENTO E INVESTIMENTO|FINANCIAMENTOS E INVESTIMENTOS|DE CREDITO|FINANCIAMENTOS|CREDITO|CONSIGNADO|FINANCEIRA)\b/g, '')
+                                .replace(/\s+/g, ' ')
+                                .trim()
+                                .replace(/[,.\-]+$/, '')
+                                .trim();
+                            if (limpa.length > 1) resultado.add(limpa);
+                        }
+                    });
+
+                    return resultado.size > 0 ? [...resultado] : ['NÃO IDENTIFICADO'];
+                };
+
                 const gerarRelatorioGenerico = (campo, titulo, isClasse = false) => {
                     fechar();
                     const dadosFinais = obterDadosConsolidados();
                     const contagem = {};
+                    // Para 'reu': separa litisconsórcio e condensa nomes de instituições
+                    const totalContabilizado = campo === 'reu' ? 0 : dadosFinais.length;
                     dadosFinais.forEach(item => {
-                        const val = item[campo];
-                        contagem[val] = (contagem[val] || 0) + 1;
+                        if (campo === 'reu') {
+                            const partes = normalizarEsplitarReu(item[campo]);
+                            partes.forEach(val => { contagem[val] = (contagem[val] || 0) + 1; });
+                        } else {
+                            const val = item[campo];
+                            contagem[val] = (contagem[val] || 0) + 1;
+                        }
                     });
                     const arr = Object.keys(contagem).map(k => ({ nome: k, total: contagem[k] }));
                     arr.sort((a, b) => b.total - a.total);
 
                     const totalProcessos = dadosFinais.length;
-                    
+                    const totalOcorrencias = arr.reduce((s, x) => s + x.total, 0);
+
                     let htmlTutela = '';
                     let textTutela = '';
-                    
+
                     if (isClasse) {
                         const totalTutelas = dadosFinais.filter(d => d.isTutela).length;
                         if (totalTutelas > 0) {
@@ -2631,23 +2836,36 @@
                         }
                     }
 
-                    let html = `<div style="font-family: Arial, sans-serif;"><h3 style="color: #0081c2; margin-bottom: 5px;">Relatório: ${titulo} (Total: ${totalProcessos})</h3>${htmlTutela}<table border="1" style="border-collapse: collapse; width: 100%; text-align: left;"><thead><tr><th style="padding: 8px;">${titulo}</th><th style="padding: 8px; text-align: center;">Processos</th><th style="padding: 8px; text-align: center;">%</th></tr></thead><tbody>`;
-                    let texto = `Relatório: ${titulo} (Total: ${totalProcessos})\n----------------------------------------\n${textTutela}`;
+                    // Para polo passivo, base do % é total de ocorrências (pode ser > processos por litisconsórcio)
+                    const basePerc = campo === 'reu' ? totalOcorrencias : totalProcessos;
+                    const notaLitis = campo === 'reu' && totalOcorrencias > totalProcessos
+                        ? `<p style="font-size:11px;color:#888;margin-bottom:8px;">* ${totalProcessos} processos / ${totalOcorrencias} ocorrências (litisconsórcio contabilizado por parte)</p>` : '';
+
+                    let html = `<div style="font-family: Arial, sans-serif;"><h3 style="color: #0081c2; margin-bottom: 5px;">Relatório: ${titulo} (${totalProcessos} processos)</h3>${notaLitis}${htmlTutela}<table border="1" style="border-collapse: collapse; width: 100%; text-align: left;"><thead><tr><th style="padding: 8px;">${titulo}</th><th style="padding: 8px; text-align: center;">Ocorrências</th><th style="padding: 8px; text-align: center;">%</th></tr></thead><tbody>`;
+                    let texto = `Relatório: ${titulo} (${totalProcessos} processos)\n----------------------------------------\n${textTutela}`;
 
                     arr.forEach(item => {
-                        const perc = ((item.total / totalProcessos) * 100).toFixed(1).replace('.', ',');
+                        const perc = ((item.total / basePerc) * 100).toFixed(1).replace('.', ',');
                         html += `<tr><td style="padding: 8px;">${item.nome}</td><td style="padding: 8px; text-align: center;">${item.total}</td><td style="padding: 8px; text-align: center;">${perc}%</td></tr>`;
-                        texto += `${item.nome}: ${item.total} processos (${perc}%)\n`;
+                        texto += `${item.nome}: ${item.total} (${perc}%)\n`;
                     });
                     html += '</tbody></table></div>';
 
                     copiarParaClipboard(html, texto);
+
                     if (typeof mostrarToast === 'function') mostrarToast(`Relatório copiado! Memória limpa.`);
                 };
 
                 document.getElementById('btn-rel-passivo').onclick = () => gerarRelatorioGenerico('reu', 'Polo Passivo', false);
                 document.getElementById('btn-rel-classe').onclick = () => gerarRelatorioGenerico('classe', 'Procedimento', true);
-            };
+                }; // fim abrirModalRelatorio
+
+                if (isScanning || filaDeProcessamento.active > 0 || filaDeProcessamento.pending > 0 || filaDeProcessamento.queue.length > 0) {
+                    mostrarRastreamentoPendente(abrirModalRelatorio);
+                } else {
+                    abrirModalRelatorio();
+                }
+            }; // fim onclick eproc-rel-tramitacao-btn
         }
 
         function renderizarBotoes() {
@@ -2757,14 +2975,14 @@
              setInterval(gerenciarColunasEProcessos, 2000);
 
              const observer = new MutationObserver((mutations) => {
-                if (isScanning) return; 
+                if (isScanning) return;
 
                 const apenasMutacoesDoScript = mutations.every(m => {
                     if (m.type === 'attributes') return true;
 
                     if (m.type === 'childList') {
                         return Array.from(m.addedNodes).every(node =>
-                            node.nodeType !== 1 || 
+                            node.nodeType !== 1 ||
                             node.classList.contains('eproc-spinner') ||
                             node.classList.contains('eproc-col-data-nucleo') ||
                             node.classList.contains('eproc-col-origem-nucleo')
@@ -2786,10 +3004,11 @@
         const init = () => {
             const form = document.getElementById('frmProcessoLista');
             if(form && !document.getElementById('eproc-seletor')) {
-                criarInterface(); 
+                criarInterface();
                 protegerServidorEproc();
-                melhorarGerenciarLocalizadores(); 
-                setTimeout(iniciarProcessamentoDados, 100); 
+                melhorarGerenciarLocalizadores();
+                restaurarPaginaAtual();
+                setTimeout(iniciarProcessamentoDados, 100);
 
                 const tab = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
                 if (tab) {
