@@ -1,11 +1,10 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.32
-// @description  Seleções inteligentes e Complementos ao sistema EPROC
+// @version      45.45
+// @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
-// @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=localizador_processos_lista*
-// @match        https://eproc1g.tjmg.jus.br/eproc/controlador.php?acao=pesquisa_processo*
+// @match        https://eproc1g.tjmg.jus.br/eproc/*
 // @updateURL    https://github.com/AllisondeCastro/Eproc-4.0/raw/refs/heads/main/EPROC%204.0.user.js
 // @downloadURL  https://github.com/AllisondeCastro/Eproc-4.0/raw/refs/heads/main/EPROC%204.0.user.js
 // @grant        none
@@ -1740,20 +1739,64 @@
 
         function aplicarHackPaginacao() {
             const div = document.getElementById('divPaginacao');
+            const selPagina = document.getElementById('selPagina');
             if (!div || document.getElementById('optPaginacao1000')) return;
             const d = document.createElement('div');
             d.innerHTML = `<input type="radio" name="paginacao" id="optPaginacao500" value="500" class="infraRadio mr-2"><label for="optPaginacao500" class="infraRadio mr-2">500 processos por página</label><br>
                            <input type="radio" name="paginacao" id="optPaginacao1000" value="1000" class="infraRadio mr-2"><label for="optPaginacao1000" class="infraRadio mr-2">1000 processos por página</label>`;
             div.appendChild(d);
 
-            const prefPag = localStorage.getItem(LS_KEY_PAGINACAO);
+            let prefPag = localStorage.getItem(LS_KEY_PAGINACAO);
+            if (!prefPag) {
+                prefPag = '500';
+                localStorage.setItem(LS_KEY_PAGINACAO, '500');
+            }
+            if (selPagina) {
+                if (!selPagina.querySelector('option[value="500"]')) {
+                    const opt500 = document.createElement('option');
+                    opt500.value = '500';
+                    opt500.text = '500';
+                    selPagina.appendChild(opt500);
+                }
+                if (!selPagina.querySelector('option[value="1000"]')) {
+                    const opt1000 = document.createElement('option');
+                    opt1000.value = '1000';
+                    opt1000.text = '1000';
+                    selPagina.appendChild(opt1000);
+                }
+            }
             if (prefPag === '1000') document.getElementById('optPaginacao1000').checked = true;
-            if (prefPag === '500') document.getElementById('optPaginacao500').checked = true;
+            else document.getElementById('optPaginacao500').checked = true;
+
+            const hdnPaginacao = document.getElementById('paginacao');
+            const checkedRadio = document.querySelector('input[name="paginacao"]:checked');
+            if (hdnPaginacao && checkedRadio) hdnPaginacao.value = checkedRadio.value;
 
             document.querySelectorAll('input[name="paginacao"]').forEach(r => r.addEventListener('change', e => {
-             localStorage.setItem(LS_KEY_PAGINACAO, e.target.value);
-             document.cookie = `paginacao=${e.target.value};path=/;max-age=3600`;
-        }));
+                localStorage.setItem(LS_KEY_PAGINACAO, e.target.value);
+                document.cookie = `paginacao=${e.target.value};path=/;max-age=3600`;
+                if (hdnPaginacao) hdnPaginacao.value = e.target.value;
+            }));
+
+            if (!window.eprocJaAutoSubmetido) {
+                window.eprocJaAutoSubmetido = true;
+                setTimeout(() => {
+                    const form = document.getElementById('frmProcessoLista');
+                    const btnConsultar = form ? form.querySelector('button[data-botao], .infraButton, button[type="submit"]') : null;
+                    if (selPagina) {
+                        selPagina.value = prefPag;
+                        localStorage.setItem(LS_KEY_PAGINACAO, prefPag);
+
+                        new Promise(resolve => setTimeout(resolve, 30)).then(() => {
+                            if (btnConsultar && typeof btnConsultar.click === 'function') {
+                                btnConsultar.click();
+                            } else if (form) {
+                                form.submit();
+                            }
+                        });
+                    }
+                }, 800);
+            }
         }
 
         function validarIntervaloData(linha, dtInicio, dtFim) {
@@ -2934,9 +2977,19 @@
 
             function prepararEnvio(evento) {
                 const selPagina = document.getElementById('selPagina');
+                let prefPag = localStorage.getItem(LS_KEY_PAGINACAO);
+                if (!prefPag) prefPag = '500';
+
+                if (selPagina && (prefPag === '500' || prefPag === '1000')) {
+                    new Promise(resolve => setTimeout(resolve, 50)).then(() => {
+                        if (selPagina) selPagina.value = prefPag;
+                    });
+                }
+
                 if (selPagina && formObj.action) {
+                    const valorParaEnvio = (prefPag === '500' || prefPag === '1000') ? prefPag : selPagina.value;
                     if (!formObj.action.includes('selPagina=')) {
-                        formObj.action += (formObj.action.includes('?') ? '&' : '?') + 'selPagina=' + selPagina.value;
+                        formObj.action += (formObj.action.includes('?') ? '&' : '?') + 'selPagina=' + valorParaEnvio;
                     }
                 }
 
@@ -3028,6 +3081,66 @@
             if([...s.options].some(o=>o.value==='100') && s.value!=='100') { s.value='100'; s.dispatchEvent(new Event('change')); }
         });
         new MutationObserver(fixPesq).observe(document.body, {childList:true, subtree:true}); fixPesq();
+    }
+
+    function eprocAutoCheckboxesInit() {
+        function marcarTodosCheckboxes() {
+            var count = 0;
+            var prazos = document.querySelectorAll('input[name="selPrazo[]"]');
+            prazos.forEach(function(cb) {
+                if (!cb.checked) { cb.checked = true; count++; }
+            });
+            var fieldsets = document.querySelectorAll('fieldset');
+            fieldsets.forEach(function(fs) {
+                var tabelaProcessos = fs.querySelector('table.infraTable');
+                if (tabelaProcessos) return;
+                var checkboxes = fs.querySelectorAll('input[type="checkbox"].infraCheckbox');
+                checkboxes.forEach(function(cb) {
+                    if (cb.name && cb.name.indexOf('chkInfraItem') === 0) return;
+                    if (!cb.checked) { cb.checked = true; count++; }
+                });
+            });
+            var areasFormulario = document.querySelectorAll('#divInfraAreaDados, #divInfraAreaDados1, #fldDadosBasicos, #fldOpcoesAvancadas, #fldSuspensao');
+            areasFormulario.forEach(function(area) {
+                if (!area) return;
+                var checkboxes = area.querySelectorAll('input[type="checkbox"].infraCheckbox');
+                checkboxes.forEach(function(cb) {
+                    if (cb.name && cb.name.indexOf('chkInfraItem') === 0) return;
+                    if (!cb.checked) { cb.checked = true; count++; }
+                });
+            });
+            if (count > 0) console.log('[Auto Checkboxes] ' + count + ' marcado(s)');
+        }
+
+        console.log('[Auto Checkboxes] Inicializado v45.45');
+
+        var checkboxObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) {
+                            if (node.querySelector && node.querySelector('input[type="checkbox"]')) {
+                                setTimeout(marcarTodosCheckboxes, 500);
+                            }
+                        }
+                    });
+                }
+            });
+        });
+
+        checkboxObserver.observe(document.body, { childList: true, subtree: true });
+        setInterval(marcarTodosCheckboxes, 2000);
+        setTimeout(marcarTodosCheckboxes, 1000);
+        setTimeout(marcarTodosCheckboxes, 2500);
+        setTimeout(marcarTodosCheckboxes, 4000);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(eprocAutoCheckboxesInit, 1000);
+        });
+    } else {
+        setTimeout(eprocAutoCheckboxesInit, 1000);
     }
 
 })();
