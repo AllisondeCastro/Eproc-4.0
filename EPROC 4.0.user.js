@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.47
+// @version      45.48
 // @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/*
@@ -3094,6 +3094,10 @@
     }
 
     function eprocAutoCheckboxesInit() {
+        if (!location.href.includes("acao=processo_consulta_listar") || !location.href.includes("acao_origem=localizador_processos_lista")) {
+            return;
+        }
+
         function marcarTodosCheckboxes() {
             var count = 0;
             var prazos = document.querySelectorAll('input[name="selPrazo[]"]');
@@ -3122,7 +3126,7 @@
             if (count > 0) console.log('[Auto Checkboxes] ' + count + ' marcado(s)');
         }
 
-        console.log('[Auto Checkboxes] Inicializado v45.45');
+        console.log('[Auto Checkboxes] Inicializado v45.47');
 
         var checkboxObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
