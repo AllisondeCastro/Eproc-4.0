@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.45
+// @version      45.46
 // @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/*
@@ -1172,7 +1172,9 @@
         }
 
         const cleanText = textoOrigem.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-        if (!cleanText.includes("UNICA") && !cleanText.includes("ÚNICA")) {
+        if (cleanText.includes("UNICA") || cleanText.includes("UJU")) {
+            vara = "ÚNICA";
+        } else {
             const matchVara = cleanText.match(/(\d+)[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
             if (matchVara) vara = matchVara[1] + "VC";
         }
@@ -1181,14 +1183,15 @@
         return null;
     }
 
-    function findLocalizadorIdNoDropdown(parsedOrigem) {
+    function findLocalizadorIdNoDropdown(parsedOrigem, isNujesp) {
         if (!parsedOrigem) return null;
         const options = Array.from(document.querySelectorAll('#selNovoLocalizador option'));
         const searchComarca = parsedOrigem.comarca.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        const searchPrefix = isNujesp ? "NB/JESP" : "NB/JC";
 
         for (let opt of options) {
             const txt = opt.text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-            if (txt.includes("NB/JC") && txt.includes(searchComarca)) {
+            if (txt.includes(searchPrefix) && txt.includes(searchComarca)) {
                 if (parsedOrigem.vara === "ÚNICA") {
                     if (!txt.match(/\d+VC/)) return opt;
                 } else {
@@ -1200,6 +1203,13 @@
     }
 
     function abrirAssistenteDistribuicao() {
+        const perfilElement = document.querySelector('#selInfraUnidades option:checked');
+        if (!perfilElement) {
+            alert("Não foi possível identificar o perfil de usuário atual (NUCIV ou NUJESP).");
+            return;
+        }
+        const isNujesp = perfilElement.textContent.includes('NUJESP');
+
         const painelLoc = document.getElementById('conteudoAlterarLocalizadores');
         if (painelLoc && painelLoc.style.display === 'none') {
             const legendLoc = document.querySelector('#fldAlterarLocalizadores legend');
@@ -1228,7 +1238,7 @@
             if(textoOrigem === "..." || textoOrigem === "-") return;
 
             const parsed = parseOrigem(textoOrigem);
-            const optTarget = findLocalizadorIdNoDropdown(parsed);
+            const optTarget = findLocalizadorIdNoDropdown(parsed, isNujesp);
 
             if (optTarget && optTarget.value !== "null") {
                 const targetNameClean = optTarget.text.split('-')[1]?.trim().toUpperCase().replace(/[^A-Z0-9]/g, '') || optTarget.text.toUpperCase().replace(/[^A-Z0-9]/g, '');
