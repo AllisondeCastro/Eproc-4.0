@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      45.48
+// @version      46.5
 // @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/*
@@ -48,6 +48,7 @@
     const LS_KEY_BOTOES = "eproc_botoes_personalizados";
     const LS_KEY_ORDEM = "eproc_ordem_botoes";
     const LS_KEY_PAGINACAO = "eproc_paginacao_pref";
+    const LS_KEY_SORT = "eproc_sort_pref";
 
     const BUCKET_CAPACITY = 25;
     const TOKENS_PER_SECOND = 5;
@@ -593,6 +594,45 @@
                             }
                         }
                     }
+                    if (!dataAchada) {
+                        const mUrlPag = text.match(/urlPaginacao\s*=\s*'([^']+)'/);
+                        const totalPag = doc.querySelectorAll('#selPaginacaoT option').length;
+                        if (mUrlPag && totalPag > 1) {
+                            const urlPag = mUrlPag[1];
+                            for (let p = 1; p < totalPag && !dataAchada; p++) {
+                                try {
+                                    const controllerPag = new AbortController();
+                                    const timeoutPag = setTimeout(() => controllerPag.abort(), 10000);
+                                    const resPag = await fetch(urlPag, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                                        body: `pagina=${p}`,
+                                        credentials: 'include',
+                                        signal: controllerPag.signal
+                                    });
+                                    clearTimeout(timeoutPag);
+                                    if (!resPag.ok) continue;
+                                    const htmlPag = new TextDecoder('iso-8859-1').decode(await resPag.arrayBuffer());
+                                    const docPag = new DOMParser().parseFromString(htmlPag, "text/html");
+                                    const tbody = docPag.querySelector('#tblEventosNovos > tbody');
+                                    if (!tbody) continue;
+                                    for (let tr of tbody.querySelectorAll('tr')) {
+                                        if (tr.textContent.includes(TEXTO_ALVO_1) || (tr.textContent.includes("Remetidos os Autos") && tr.textContent.includes(TEXTO_ALVO_2))) {
+                                            const match = tr.cells[2]?.textContent.trim().match(/(\d{2}\/\d{2}\/\d{4})/);
+                                            if (match) {
+                                                dataAchada = match[1];
+                                                const mOrigem = tr.textContent.match(regexOrigem);
+                                                if (mOrigem) origemAchada = mOrigem[1].trim();
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch(e) {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if (dataAchada) {
@@ -600,6 +640,7 @@
                     this.renderizarDoCache(task.celula, task.linha, `${dataAchada}###${origemAchada}`);
                     this.active--;
                     this.pending--;
+                    if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
                     this.process();
                 } else {
                     throw new Error("Data pattern not found");
@@ -612,6 +653,7 @@
                 if (task.retries > 15) {
                     this.pending--;
                     DomBatcher.add(task.celula, `<span style="color:red;" title="Erro na busca">Erro</span>`, task.linha, { 'data-nucleo-status': 'error', 'data-nucleo-carregado': 'true' });
+                    if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
                     this.process();
                     return;
                 }
@@ -623,6 +665,7 @@
 
                 if (!document.body.contains(task.linha)) {
                     this.pending--;
+                    if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
                     this.process();
                     return;
                 }
@@ -646,13 +689,38 @@
     // PARTE 3: TABELA E CHUNK PROCESSING
     // ===========================================================================================
     let estadoOrdenacao = { ordemData: 'desc', ordemOrigem: 'asc' };
+    try {
+        const saved = localStorage.getItem(LS_KEY_SORT);
+        if (saved) {
+            const { col, dir } = JSON.parse(saved);
+            if (col === 'data') estadoOrdenacao.ordemData = dir;
+            else if (col === 'origem') estadoOrdenacao.ordemOrigem = dir;
+        } else {
+            estadoOrdenacao.ordemData = 'asc';
+            localStorage.setItem(LS_KEY_SORT, JSON.stringify({ col: 'data', dir: 'asc' }));
+        }
+    } catch (e) {}
+
+    let initialSortAplicado = false;
+    function aplicarSortSalvo() {
+        if (initialSortAplicado) return;
+        try {
+            const saved = localStorage.getItem(LS_KEY_SORT);
+            if (!saved) return;
+            const { col, dir } = JSON.parse(saved);
+            const colClass = col === 'data' ? '.eproc-col-data-nucleo' : '.eproc-col-origem-nucleo';
+            const ordemVar = col === 'data' ? 'ordemData' : 'ordemOrigem';
+            ordenarPor(colClass, ordemVar, dir);
+            initialSortAplicado = true;
+        } catch (e) {}
+    }
 
     function obterDataSegura(str) {
         if (!str) return null; const match = str.match(/(\d{2})\/(\d{2})\/(\d{4})/);
         return match ? new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1])) : null;
     }
 
-    function ordenarPor(colClass, ordemVar) {
+    function ordenarPor(colClass, ordemVar, forceDir = null) {
         const tabela = document.getElementById('tabelaLocalizadores') || document.querySelector('.infraTable');
         if (!tabela) return;
         const th = tabela.querySelector(colClass === '.eproc-col-data-nucleo' ? '.th-nucleo-40' : '.th-nucleo-origem');
@@ -662,7 +730,16 @@
         document.querySelectorAll('.th-nucleo-40 .sort-up, .th-nucleo-origem .sort-up').forEach(img => img.src = 'infra_css/imagens/seta_acima.gif');
         document.querySelectorAll('.th-nucleo-40 .sort-down, .th-nucleo-origem .sort-down').forEach(img => img.src = 'infra_css/imagens/seta_abaixo.gif');
 
-        estadoOrdenacao[ordemVar] = (estadoOrdenacao[ordemVar] === 'asc') ? 'desc' : 'asc';
+        if (forceDir) {
+            estadoOrdenacao[ordemVar] = forceDir;
+        } else {
+            estadoOrdenacao[ordemVar] = (estadoOrdenacao[ordemVar] === 'asc') ? 'desc' : 'asc';
+        }
+
+        try {
+            const col = colClass === '.eproc-col-data-nucleo' ? 'data' : 'origem';
+            localStorage.setItem(LS_KEY_SORT, JSON.stringify({ col, dir: estadoOrdenacao[ordemVar] }));
+        } catch (e) {}
         const imgUp = th.querySelector('.sort-up');
         const imgDown = th.querySelector('.sort-down');
 
@@ -834,7 +911,7 @@
                         const origemStr = parts[1] || "-";
                         if (regexData.test(dataStr)) {
                             tdDate.innerHTML = `<span style="color:#000;">${dataStr}</span>`;
-                            tdOrigem.innerHTML = `<span title="${origemStr}">${origemStr}</span>`;
+                            tdOrigem.innerHTML = `<span>${origemStr}</span>`;
                             tr.setAttribute('data-nucleo-carregado', 'true');
                             tr.setAttribute('data-idx-text', (tr.getAttribute('data-idx-text') || "") + " " + removerAcentos(origemStr.toUpperCase()));
                         } else {
@@ -851,6 +928,9 @@
         };
 
         const finalize = () => {
+            if (filaDeProcessamento.pending === 0 && filaDeProcessamento.queue.length === 0) {
+                aplicarSortSalvo();
+            }
             isScanning = false;
             const alertaDiv = document.getElementById('eproc-alerta-paralisado');
             if (alertaDiv) {
@@ -1175,7 +1255,7 @@
         if (cleanText.includes("UNICA") || cleanText.includes("UJU")) {
             vara = "ÚNICA";
         } else {
-            const matchVara = cleanText.match(/(\d+)[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
+            const matchVara = cleanText.match(/(\d+)\s*[AO]?\s*[^A-Z]*(JD|UJ|UJU|UNIDADE|VARA|VC|V\.)/);
             if (matchVara) vara = matchVara[1] + "VC";
         }
 
@@ -3149,12 +3229,348 @@
         setTimeout(marcarTodosCheckboxes, 4000);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(eprocAutoCheckboxesInit, 1000);
+
+
+    // ===========================================================================================
+    // MÓDULO: LEMBRETES DINÂMICOS
+    // ===========================================================================================
+    function initLembretesDinamicos() {
+        if (!location.href.includes("acao=localizador_processos_lista")) return;
+        if (window._lembretesIniciados) return;
+        window._lembretesIniciados = true;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            :root { --eproc-blue: #0081c2; --eproc-red: #d9534f; --eproc-yellow: #f39c12; }
+            .eproc-lembretes-click { transition: transform 0.1s cubic-bezier(0.4,0,0.2,1), box-shadow 0.1s cubic-bezier(0.4,0,0.2,1), background-color 0.2s, opacity 0.2s !important; }
+            .eproc-lembretes-click:active { transform: scale(0.92) !important; box-shadow: inset 0 3px 5px rgba(0,0,0,0.2) !important; }
+            #lembretes-bell-btn:hover #lembretes-sino-svg { fill: var(--eproc-blue) !important; }
+            #eproc-lembretes-modal { position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;backdrop-filter:blur(2px);font-family:'Roboto',Arial,sans-serif; }
+            #eproc-lembretes-modal .modern-modal { background:#fff;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.15);border:1px solid #e0e0e0;width:780px;position:relative; }
+            #eproc-lembretes-modal .modern-modal-header { background:#fdfdfd;padding:15px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;color:#333;font-weight:bold;font-size:15px;border-radius:8px 8px 0 0; }
+            #eproc-lembretes-modal .header-title { display:flex;align-items:center;gap:10px; }
+            #eproc-lembretes-modal .header-title svg { fill:var(--eproc-blue);width:22px;height:22px; }
+            #eproc-lembretes-modal .btn-novo-topo { background:var(--eproc-blue);color:#fff;border:none;padding:5px 12px;border-radius:4px;font-size:12px;font-weight:bold;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+            #eproc-lembretes-modal .lembretes-list { max-height:450px;overflow-y:auto;padding:20px;background:#fcfcfc; }
+            #eproc-lembretes-modal .lembrete-item { background:#fff;border:1px solid #eee;border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:all 0.2s; }
+            #eproc-lembretes-modal .lembrete-item:last-child { margin-bottom:0; }
+            #eproc-lembretes-modal .lembrete-item:hover { box-shadow:0 3px 6px rgba(0,0,0,0.1); }
+            #eproc-lembretes-modal .lembrete-info { flex:1;font-size:12px;line-height:1.4;color:#555;padding-right:10px;word-break:break-word; }
+            #eproc-lembretes-modal .lembrete-info strong { font-size:11px;text-transform:uppercase; }
+            #eproc-lembretes-modal .lembrete-date { font-size:11px;color:#999;margin-top:3px;display:block; }
+            #eproc-lembretes-modal .lembrete-actions { display:flex;gap:4px; }
+            #eproc-lembretes-modal .btn-mini { width:26px;height:26px;border-radius:4px;border:none;background:transparent;cursor:pointer;color:#777;display:flex;align-items:center;justify-content:center; }
+            #eproc-lembretes-modal .btn-mini:hover { background:#eee;color:var(--eproc-blue); }
+            #eproc-lembretes-modal .btn-mini.danger:hover { color:var(--eproc-red); }
+            #eproc-lembretes-modal .btn-mini svg { width:14px;height:14px;fill:currentColor; }
+            #eproc-lembretes-modal .modern-modal-body { padding:20px;position:relative; }
+            #eproc-lembretes-modal .form-title { font-size:13px;font-weight:bold;color:#333;margin-bottom:15px;text-transform:uppercase;border-bottom:2px solid var(--eproc-blue);display:inline-block;padding-bottom:3px; }
+            #eproc-lembretes-modal .form-group { margin-bottom:18px; }
+            #eproc-lembretes-modal .form-label { display:block;font-size:13px;font-weight:bold;color:#555;margin-bottom:8px; }
+            #eproc-lembretes-modal .color-selector { display:flex;gap:25px;justify-content:center; }
+            #eproc-lembretes-modal .color-item { display:flex;flex-direction:column;align-items:center;gap:6px; }
+            #eproc-lembretes-modal .color-box { width:32px;height:32px;border-radius:6px;cursor:pointer;border:2px solid transparent;position:relative;box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+            #eproc-lembretes-modal .color-box:hover { transform:scale(1.08);box-shadow:0 4px 10px rgba(0,0,0,0.15); }
+            #eproc-lembretes-modal .color-box.active { border-color:#333;box-shadow:0 4px 8px rgba(0,0,0,0.2);transform:scale(1.1); }
+            #eproc-lembretes-modal .color-box.active::after { content:"\\2713";position:absolute;color:white;font-weight:bold;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;text-shadow:0 1px 2px rgba(0,0,0,0.5); }
+            #eproc-lembretes-modal .color-item span { font-size:11px;color:#777;font-weight:500; }
+            #eproc-lembretes-modal textarea.modal-input { width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:80px;box-sizing:border-box; }
+            #eproc-lembretes-modal textarea.modal-input:focus { outline:none;border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.1); }
+            #eproc-lembretes-modal .datetime-group { display:flex;gap:10px;position:relative; }
+            #eproc-lembretes-modal .input-wrapper { flex:1;position:relative; }
+            #eproc-lembretes-modal .input-wrapper input { width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#333;outline:none;box-sizing:border-box;font-family:inherit; }
+            #eproc-lembretes-modal .input-wrapper input:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.1); }
+            #eproc-lembretes-modal .clock-icon-btn { position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;color:#666;border-radius:50%; }
+            #eproc-lembretes-modal .clock-icon-btn:hover { background:#eee;color:var(--eproc-blue); }
+            #eproc-lembretes-modal .clock-icon-btn svg { width:16px;height:16px;fill:currentColor; }
+            #eproc-lembretes-modal .modal-actions { display:flex;justify-content:flex-end;gap:10px;margin-top:25px; }
+            #eproc-lembretes-modal .btn-cancelar { background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer; }
+            #eproc-lembretes-modal .btn-cancelar:hover { background:#f8f8f8;color:#333; }
+            #eproc-lembretes-modal .btn-salvar { background:#5cb85c;color:white;border:1px solid #4cae4c;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:bold;cursor:pointer; }
+            #eproc-lembretes-modal .btn-salvar:hover { background:#4cae4c; }
+            #eproc-lembretes-modal .clock-picker-container { position:absolute;bottom:100%;top:auto;right:0;margin-bottom:8px;background:#fff;border-radius:12px;width:220px;box-shadow:0 -5px 25px rgba(0,0,0,0.2);border:1px solid #e0e0e0;display:none;z-index:9999;padding:15px;box-sizing:border-box;transform-origin:bottom right;animation:clock-pop-up 0.2s cubic-bezier(0.175,0.885,0.32,1.275); }
+            #eproc-lembretes-modal .clock-picker-container.active { display:block; }
+            @keyframes clock-pop-up { 0%{transform:scale(0.8);opacity:0;} 100%{transform:scale(1);opacity:1;} }
+            #eproc-lembretes-modal .clock-title { text-align:center;font-size:13px;font-weight:bold;color:var(--eproc-blue);margin-bottom:12px; }
+            #eproc-lembretes-modal .clock-face { width:180px;height:180px;background:#f5f7fa;border-radius:50%;position:relative;margin:0 auto; }
+            #eproc-lembretes-modal .clock-center { position:absolute;top:50%;left:50%;width:6px;height:6px;background:var(--eproc-blue);border-radius:50%;transform:translate(-50%,-50%);z-index:2; }
+            #eproc-lembretes-modal .clock-hand { position:absolute;bottom:50%;left:50%;width:2px;height:40%;background:var(--eproc-blue);transform-origin:bottom center;z-index:1;transition:transform 0.2s cubic-bezier(0.4,0,0.2,1); }
+            #eproc-lembretes-modal .clock-number { position:absolute;width:28px;height:28px;text-align:center;line-height:28px;border-radius:50%;font-size:13px;font-weight:500;cursor:pointer;transform:translate(-50%,-50%);color:#333;transition:background 0.2s,color 0.2s;z-index:3;user-select:none; }
+            #eproc-lembretes-modal .clock-number:hover { background:rgba(0,129,194,0.2); }
+            #eproc-lembretes-modal .clock-number.selected { background:var(--eproc-blue);color:white;box-shadow:0 2px 5px rgba(0,129,194,0.4); }
+            #eproc-lembretes-container { position:fixed;top:80px;right:20px;display:flex;flex-direction:column;gap:15px;z-index:9998;font-family:'Roboto',Arial,sans-serif; }
+            .eproc-postit { width:280px;padding:16px;position:relative;font-size:13px;color:#333;background:#fff;border-radius:12px;box-shadow:8px 8px 24px rgba(0,0,0,0.06),-4px -4px 16px rgba(255,255,255,0.8);animation:postit-slide-in 0.3s cubic-bezier(0.175,0.885,0.32,1.275);word-break:break-word; }
+            @keyframes postit-slide-in { 0%{transform:translateX(100%);opacity:0;} 100%{transform:translateX(0);opacity:1;} }
+            .eproc-postit-header { font-weight:bold;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center; }
+            .eproc-postit-body { line-height:1.5; }
+            .eproc-postit-link { color:var(--eproc-blue);font-weight:bold;text-decoration:none; }
+            .eproc-postit-link:hover { text-decoration:underline; }
+            .eproc-postit-actions { display:flex;gap:8px; }
+            .eproc-postit-btn { width:28px;height:28px;border:none;background:#f9f9f9;cursor:pointer;opacity:0.7;display:flex;align-items:center;justify-content:center;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+            .eproc-postit-btn:hover { opacity:1;background:#eee;box-shadow:0 2px 5px rgba(0,0,0,0.15); }
+            .eproc-postit-btn svg { width:17px;height:17px;fill:currentColor; }
+            @keyframes pulse-neon-var { 0%{box-shadow:0 0 0 0 var(--pulse-color,rgba(217,83,79,0.7));} 70%{box-shadow:0 0 0 10px rgba(0,0,0,0);} 100%{box-shadow:0 0 0 0 rgba(0,0,0,0);} }
+            .eproc-sino-pulse { animation:pulse-neon-var 2s infinite; }
+        `;
+        document.head.appendChild(style);
+
+        const dbName = 'EprocLembretesDB'; const storeName = 'lembretes'; let db;
+        const openDB = () => new Promise((resolve, reject) => {
+            const req = indexedDB.open(dbName, 1);
+            req.onupgradeneeded = (e) => { let d = e.target.result; if (!d.objectStoreNames.contains(storeName)) d.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true }); };
+            req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+            req.onerror = (e) => reject(e.target.error);
         });
-    } else {
-        setTimeout(eprocAutoCheckboxesInit, 1000);
+        const getAllLembretes = async () => { await openDB(); return new Promise((res, rej) => { const r = db.transaction(storeName,'readonly').objectStore(storeName).getAll(); r.onsuccess = () => res(r.result||[]); r.onerror = () => rej(r.error); }); };
+        const saveLembrete = async (l) => { await openDB(); return new Promise((res, rej) => { const r = db.transaction(storeName,'readwrite').objectStore(storeName)[l.id?'put':'add'](l); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); };
+        const deleteLembrete = async (id) => { await openDB(); return new Promise((res, rej) => { const r = db.transaction(storeName,'readwrite').objectStore(storeName).delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); };
+
+
+        let bellBtn;
+        const insertBell = () => {
+            if (document.getElementById('lembretes-bell-btn')) return;
+
+            // Inserir na divInfraBarraLocalizacao, à esquerda do ícone "?" (Ajuda)
+            const barra = document.getElementById('divInfraBarraLocalizacao');
+            if (!barra) {
+                if (!window._lembretesBellRetry) {
+                    window._lembretesBellRetry = true;
+                    setTimeout(() => {
+                        window._lembretesBellRetry = false;
+                        insertBell();
+                    }, 500);
+                }
+                return;
+            }
+
+            // Encontra o container flex (d-flex) dentro da barra
+            const flexContainer = barra.querySelector('.d-flex') || barra.querySelector('div[class*="d-flex"]');
+            if (!flexContainer) {
+                setTimeout(insertBell, 500);
+                return;
+            }
+
+            // Encontra o span.dropleft que contém o ícone "?"
+            const dropSpan = flexContainer.querySelector('span.dropleft') || flexContainer.querySelector('a[aria-label="Ajuda"]')?.closest('span') || flexContainer.querySelector('[aria-label="Ajuda"]')?.parentElement;
+            if (!dropSpan) {
+                setTimeout(insertBell, 500);
+                return;
+            }
+
+            // Cria um wrapper flex para agrupar o sino e o "?" à direita
+            const rightWrapper = document.createElement('span');
+            rightWrapper.style.cssText = 'display:inline-flex;align-items:center;margin-left:auto;';
+
+            // Cria o botão do sino
+            bellBtn = document.createElement('a');
+            bellBtn.id = 'lembretes-bell-btn';
+            bellBtn.className = 'eproc-lembretes-click';
+            bellBtn.style.cssText = 'cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0.25rem 0.5rem;margin-right:6px;';
+            bellBtn.innerHTML = `<div style="position:relative;display:flex;align-items:center;"><svg id="lembretes-sino-svg" viewBox="0 0 24 24" style="width:20px;height:20px;fill:none;stroke:var(--eproc-blue);stroke-width:2;transition:all 0.2s;"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg><span id="eproc-sino-badge" class="eproc-sino-pulse" style="display:none;position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;"></span></div>`;
+            bellBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openDashboard(); };
+
+            // Monta o wrapper: sino + "?"
+            rightWrapper.appendChild(bellBtn);
+            rightWrapper.appendChild(dropSpan.cloneNode(true));
+
+            // Substitui o dropSpan original pelo wrapper
+            dropSpan.parentNode.replaceChild(rightWrapper, dropSpan);
+        };
+
+        const updateSino = async () => {
+            if (!bellBtn) return;
+            const all = await getAllLembretes();
+            const pendentes = all.filter(l => l.status === 'ativo');
+            const vencidos = pendentes.filter(l => new Date(l.datetime) <= new Date());
+            const badge = document.getElementById('eproc-sino-badge');
+            const svg = document.getElementById('lembretes-sino-svg');
+            if (badge && svg) {
+                if (vencidos.length > 0) {
+                    const oldest = vencidos.sort((a,b) => new Date(a.datetime) - new Date(b.datetime))[0];
+                    const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
+                    const cor = colors[oldest.type] || colors['LEMBRETE'];
+                    badge.style.display = 'block'; badge.style.background = cor; badge.style.setProperty('--pulse-color', cor);
+                    svg.style.fill = 'var(--eproc-blue)';
+                } else { badge.style.display = 'none'; svg.style.fill = 'none'; }
+            }
+        };
+
+        let editId = null, isMinuteMode = false, selectedHour = '06';
+
+        const modalHtml = `<div id="eproc-lembretes-modal" style="display:none;"><div class="modern-modal" style="width:780px;"><div class="modern-modal-header"><div class="header-title"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg> Lembretes Din\u00e2micos</div><div style="display:flex;align-items:center;gap:15px;"><button class="btn-novo-topo eproc-lembretes-click" id="btn-novo-lembrete">+ Novo</button><button class="eproc-lembretes-click" id="btn-close-dashboard" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;line-height:1;" title="Fechar">&times;</button></div></div><div style="display:flex;flex-direction:row;min-height:380px;"><div class="modern-modal-body" id="lembretes-form-container" style="flex:1;border-right:1px solid #eee;"><div class="form-title" id="form-lembrete-title">Criar Lembrete</div><div class="form-group"><label class="form-label">Categoria do Lembrete</label><div class="color-selector" id="color-selector"><div class="color-item"><div class="color-box active eproc-lembretes-click" style="background:var(--eproc-red);" data-type="PRAZO"></div><span>Prazo</span></div><div class="color-item"><div class="color-box eproc-lembretes-click" style="background:var(--eproc-yellow);" data-type="LEMBRETE"></div><span>Lembrete</span></div><div class="color-item"><div class="color-box eproc-lembretes-click" style="background:var(--eproc-blue);" data-type="EVENTO"></div><span>Evento</span></div></div></div><div class="form-group"><label class="form-label">Texto do Lembrete</label><textarea id="lembrete-texto" class="modal-input" placeholder="Digite seu texto. N\u00fameros de processos ser\u00e3o convertidos em links..."></textarea></div><div class="form-group"><label class="form-label">Exibir a partir de (hora opcional)</label><div class="datetime-group"><div class="input-wrapper"><input type="date" id="lembrete-data"></div><div class="input-wrapper"><input type="text" id="lembrete-hora" placeholder="06:00" maxlength="5"><button class="clock-icon-btn eproc-lembretes-click" id="lembrete-open-clock" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2"/></svg></button><div class="clock-picker-container" id="lembrete-clock"><div class="clock-title" id="lembrete-clock-title">Selecione a Hora</div><div class="clock-face" id="lembrete-clock-face"><div class="clock-center"></div><div class="clock-hand" id="lembrete-clock-hand"></div></div></div></div></div><span style="display:block;font-size:10px;color:#888;margin-top:4px;text-align:right;">*Sem data/hora: agendado para o dia posterior.</span></div><div class="modal-actions"><button class="btn-cancelar eproc-lembretes-click" id="btn-cancelar-lembrete">Limpar</button><button class="btn-salvar eproc-lembretes-click" id="btn-salvar-lembrete">Salvar Lembrete</button></div></div><div class="lembretes-list" id="lembretes-list-container" style="flex:1;max-height:450px;overflow-y:auto;padding:20px;background:#fcfcfc;"></div></div></div></div><div id="eproc-lembretes-container"></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        const modal = document.getElementById('eproc-lembretes-modal');
+        const listContainer = document.getElementById('lembretes-list-container');
+        const txtData = document.getElementById('lembrete-data');
+        const txtHora = document.getElementById('lembrete-hora');
+        const txtTexto = document.getElementById('lembrete-texto');
+        const clockBtn = document.getElementById('lembrete-open-clock');
+        const clockPicker = document.getElementById('lembrete-clock');
+        const clockFace = document.getElementById('lembrete-clock-face');
+        const clockHand = document.getElementById('lembrete-clock-hand');
+        const clockTitle = document.getElementById('lembrete-clock-title');
+
+        txtHora.addEventListener('input', function(e) { let v = e.target.value.replace(/\D/g,''); if(v.length>2) v=v.substring(0,2)+':'+v.substring(2,4); e.target.value=v; });
+        clockBtn.addEventListener('click', (e) => { e.stopPropagation(); if(clockPicker.classList.contains('active')) clockPicker.classList.remove('active'); else { clockPicker.classList.add('active'); renderHours(); } });
+        document.addEventListener('click', (e) => { if(!clockPicker.contains(e.target)&&!clockBtn.contains(e.target)&&!txtHora.contains(e.target)) clockPicker.classList.remove('active'); });
+
+        function positionHand(value, isMins) { clockHand.style.transform = `rotate(${isMins ? value*6 : value*30}deg)`; }
+        function renderNumbers(array, isMins) {
+            clockFace.querySelectorAll('.clock-number').forEach(n => n.remove());
+            const center = 90, radius = 70;
+            array.forEach((num, index) => {
+                const el = document.createElement('div'); el.className = 'clock-number';
+                el.textContent = isMins ? String(num).padStart(2,'0') : num;
+                const angle = ((index+1)*(360/array.length))-90, rad = angle*(Math.PI/180);
+                el.style.left = `${center+radius*Math.cos(rad)}px`;
+                el.style.top = `${center+radius*Math.sin(rad)}px`;
+                el.addEventListener('click', (e) => { e.stopPropagation(); if(!isMins){ selectedHour=String(num).padStart(2,'0'); isMinuteMode=true; renderMinutes(); } else { txtHora.value=`${selectedHour}:${String(num).padStart(2,'0')}`; clockPicker.classList.remove('active'); isMinuteMode=false; } });
+                clockFace.appendChild(el);
+            });
+        }
+        function renderHours() { isMinuteMode=false; clockTitle.textContent="Selecione a Hora"; renderNumbers([1,2,3,4,5,6,7,8,9,10,11,12],false); positionHand(6,false); }
+        function renderMinutes() { clockTitle.textContent="Selecione os Minutos"; renderNumbers([5,10,15,20,25,30,35,40,45,50,55,0],true); positionHand(0,true); }
+
+        document.querySelectorAll('#color-selector .color-box').forEach(box => { box.addEventListener('click', () => { document.querySelectorAll('#color-selector .color-box').forEach(b => b.classList.remove('active')); box.classList.add('active'); }); });
+
+        const resetForm = () => { editId=null; txtTexto.value=''; txtData.value=''; txtHora.value=''; document.getElementById('form-lembrete-title').textContent='Criar Lembrete'; document.getElementById('btn-cancelar-lembrete').textContent='Limpar'; document.querySelectorAll('#color-selector .color-box').forEach(b=>b.classList.remove('active')); document.querySelector('#color-selector .color-box[data-type="LEMBRETE"]').classList.add('active'); };
+
+        const formatDate = (isoStr) => { const d=new Date(isoStr); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} \u00e0s ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+
+        const renderList = async () => {
+            listContainer.innerHTML = '';
+            const all = await getAllLembretes();
+            const ativos = all.filter(l => l.status === 'ativo').sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
+            if (ativos.length === 0) { listContainer.innerHTML = '<div style="text-align:center;padding:20px;color:#999;font-size:12px;">Nenhum lembrete ativo.</div>'; return; }
+            ativos.forEach(l => {
+                const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
+                const c = colors[l.type] || colors['LEMBRETE'];
+                const div = document.createElement('div'); div.className = 'lembrete-item'; div.style.borderLeft = `4px solid ${c}`;
+                let snippet = l.text.length > 50 ? l.text.substring(0,50)+'...' : l.text;
+                div.innerHTML = `<div class="lembrete-info"><strong style="color:${c};">${l.type}</strong> - ${snippet}<span class="lembrete-date">\u23f0 ${formatDate(l.datetime)}</span></div><div class="lembrete-actions"><button class="btn-mini eproc-lembretes-click btn-edit" title="Editar"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button><button class="btn-mini danger eproc-lembretes-click btn-del" title="Excluir"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></div>`;
+                div.querySelector('.btn-edit').onclick = () => {
+                    editId = l.id; txtTexto.value = l.text;
+                    const d = new Date(l.datetime);
+                    txtData.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    txtHora.value = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+                    document.querySelectorAll('#color-selector .color-box').forEach(b => b.classList.remove('active'));
+                    const sb = document.querySelector(`#color-selector .color-box[data-type="${l.type}"]`);
+                    if (sb) sb.classList.add('active');
+                    document.getElementById('form-lembrete-title').textContent = 'Editar Lembrete';
+                    document.getElementById('btn-cancelar-lembrete').textContent = 'Cancelar Edi\u00e7\u00e3o';
+                };
+                div.querySelector('.btn-del').onclick = async () => { if(confirm('Excluir este lembrete?')){ await deleteLembrete(l.id); if(editId===l.id) resetForm(); renderList(); updateSino(); } };
+                listContainer.appendChild(div);
+            });
+        };
+
+        const openDashboard = () => { resetForm(); renderList(); modal.style.display = 'flex'; };
+        document.getElementById('btn-novo-lembrete').onclick = resetForm;
+        document.getElementById('btn-cancelar-lembrete').onclick = resetForm;
+        document.getElementById('btn-close-dashboard').onclick = () => { modal.style.display = 'none'; };
+        modal.addEventListener('click', (e) => { if(e.target === modal) modal.style.display = 'none'; });
+
+        document.getElementById('btn-salvar-lembrete').onclick = async () => {
+            const text = txtTexto.value.trim();
+            if (!text) return alert('Digite o texto do lembrete.');
+            const activeTypeBox = document.querySelector('#color-selector .color-box.active');
+            const type = activeTypeBox ? activeTypeBox.dataset.type : 'LEMBRETE';
+            let dateVal = txtData.value, timeVal = txtHora.value || '06:00', targetDate = new Date();
+            if (!dateVal && !txtHora.value) { targetDate.setDate(targetDate.getDate()+1); targetDate.setHours(6,0,0,0); }
+            else if (!dateVal) { const [h,m] = timeVal.split(':'); targetDate.setHours(h,m,0,0); if(targetDate<=new Date()) targetDate.setDate(targetDate.getDate()+1); }
+            else { const [y,mo,d] = dateVal.split('-'); const [h,m] = timeVal.split(':'); targetDate = new Date(y,mo-1,d,h,m,0,0); }
+            const lembrete = { type, text, datetime: targetDate.toISOString(), status: 'ativo', createdAt: new Date().toISOString() };
+            if (editId) lembrete.id = editId;
+            await saveLembrete(lembrete); resetForm(); renderList(); updateSino();
+        };
+
+        const linkify = (text) => {
+            const urlParams = new URLSearchParams(location.search);
+            const hash = urlParams.get('hash') || '';
+            const selLocalizador = urlParams.get('selLocalizador') || '';
+            const regex = /\b(\d{7})-?(\d{2})\.?(\d{4})\.?([8])\.?(13)\.?(\d{4})\b/g;
+            return text.replace(regex, (match, g1, g2, g3, g4, g5, g6) => {
+                const cleanNum = `${g1}${g2}${g3}${g4}${g5}${g6}`;
+                const domLink = document.querySelector(`a[href*="num_processo=${cleanNum}"]`);
+                if (domLink) return `<a href="${domLink.href}" target="_blank" class="eproc-postit-link">${match}</a>`;
+                const builtHref = `controlador.php?acao=processo_selecionar&acao_origem=localizador_processos_lista&selLocalizador=${selLocalizador}&num_processo=${cleanNum}&operador=ou&hash=${hash}`;
+                return `<a href="${builtHref}" target="_blank" class="eproc-postit-link">${match}</a>`;
+            });
+        };
+
+        const renderPostits = async () => {
+            const all = await getAllLembretes(); const now = new Date();
+            const paraExibir = all.filter(l => l.status === 'ativo' && new Date(l.datetime) <= now);
+            const container = document.getElementById('eproc-lembretes-container'); container.innerHTML = '';
+            paraExibir.forEach(l => {
+                const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
+                const c = colors[l.type] || colors['LEMBRETE'];
+                const div = document.createElement('div'); div.className = 'eproc-postit'; div.style.borderLeft = `4px solid ${c}`;
+                div.innerHTML = `<div class="eproc-postit-header"><span style="color:${c};">${l.type}</span><div class="eproc-postit-actions"><button class="eproc-postit-btn eproc-lembretes-click btn-adiar" title="Relembrar na pr\u00f3xima visita"><svg viewBox="0 0 24 24"><path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg></button><button class="eproc-postit-btn eproc-lembretes-click btn-fechar" title="Fechar permanentemente"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></div><div class="eproc-postit-body">${linkify(l.text).replace(/\n/g,'<br>')}</div>`;
+                div.querySelector('.btn-adiar').onclick = async () => { const next=new Date(); next.setMinutes(next.getMinutes()+60); l.datetime=next.toISOString(); await saveLembrete(l); div.style.display='none'; updateSino(); };
+                div.querySelector('.btn-fechar').onclick = async () => { l.status='fechado'; await saveLembrete(l); div.style.display='none'; updateSino(); };
+                container.appendChild(div);
+            });
+            updateSino();
+        };
+
+        insertBell();
+        let inatividade = 0;
+        document.addEventListener('mousemove', () => inatividade = 0);
+        document.addEventListener('keypress', () => inatividade = 0);
+        setInterval(() => { inatividade++; if (inatividade === 15) renderPostits(); }, 1000);
+        setTimeout(renderPostits, 2000);
     }
 
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initLembretesDinamicos);
+    } else {
+        initLembretesDinamicos();
+    }
+
+
+    // Tooltip personalizado: nome completo da origem no hover
+    (() => {
+        const tip = document.createElement('div');
+        tip.style.cssText = 'position:fixed;pointer-events:none;background:#333;color:#fff;padding:4px 10px;border-radius:4px;font-size:12px;font-family:Arial,sans-serif;z-index:99999;max-width:300px;white-space:nowrap;opacity:0;transition:opacity 0.2s;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+        document.body.appendChild(tip);
+
+        document.addEventListener('mouseover', (e) => {
+            const cell = e.target.closest('.eproc-col-origem-nucleo');
+            if (cell) {
+                const text = cell.textContent.trim();
+                if (!text || text === '...' || text === '-') { tip.style.opacity = '0'; return; }
+                const parsed = typeof parseOrigem === 'function' ? parseOrigem(text) : null;
+                if (!parsed) { tip.style.opacity = '0'; return; }
+                let varaFull = parsed.vara;
+                if (varaFull === 'ÚNICA' || varaFull === 'UNICA') {
+                    varaFull = 'Vara Única';
+                } else if (varaFull.includes('VC')) {
+                    varaFull = varaFull.replace(/(\d+)VC/, '$1ª Vara Cível');
+                }
+                tip.textContent = varaFull + ' de ' + parsed.comarca;
+                tip.style.left = (e.clientX + 15) + 'px';
+                tip.style.top = (e.clientY - 30) + 'px';
+                tip.style.opacity = '1';
+            } else {
+                tip.style.opacity = '0';
+            }
+        }, true);
+
+        document.addEventListener('mousemove', (e) => {
+            if (tip.style.opacity === '1') {
+                tip.style.left = (e.clientX + 15) + 'px';
+                tip.style.top = (e.clientY - 30) + 'px';
+            }
+        });
+
+        document.addEventListener('mouseout', (e) => {
+            const cell = e.target.closest('.eproc-col-origem-nucleo');
+            if (cell) tip.style.opacity = '0';
+        }, true);
+    })();
+
 })();
+
