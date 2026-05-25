@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      46.5
+// @version      47
 // @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/*
@@ -641,6 +641,7 @@
                     this.active--;
                     this.pending--;
                     if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
+                    if (this.pending === 0) window._eprocOrigemDataPronto = true;
                     this.process();
                 } else {
                     throw new Error("Data pattern not found");
@@ -654,6 +655,7 @@
                     this.pending--;
                     DomBatcher.add(task.celula, `<span style="color:red;" title="Erro na busca">Erro</span>`, task.linha, { 'data-nucleo-status': 'error', 'data-nucleo-carregado': 'true' });
                     if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
+                    if (this.pending === 0) window._eprocOrigemDataPronto = true;
                     this.process();
                     return;
                 }
@@ -666,6 +668,7 @@
                 if (!document.body.contains(task.linha)) {
                     this.pending--;
                     if (this.pending === 0 && typeof aplicarSortSalvo === 'function') { isScanning = true; aplicarSortSalvo(); isScanning = false; }
+                    if (this.pending === 0) window._eprocOrigemDataPronto = true;
                     this.process();
                     return;
                 }
@@ -930,6 +933,7 @@
         const finalize = () => {
             if (filaDeProcessamento.pending === 0 && filaDeProcessamento.queue.length === 0) {
                 aplicarSortSalvo();
+                window._eprocOrigemDataPronto = true;
             }
             isScanning = false;
             const alertaDiv = document.getElementById('eproc-alerta-paralisado');
@@ -3173,10 +3177,9 @@
         new MutationObserver(fixPesq).observe(document.body, {childList:true, subtree:true}); fixPesq();
     }
 
-    function eprocAutoCheckboxesInit() {
-        if (!location.href.includes("acao=processo_consulta_listar") || !location.href.includes("acao_origem=localizador_processos_lista")) {
-            return;
-        }
+    // Auto Checkboxes
+    (function() {
+        if (!location.href.includes('acao=processo_consulta_listar')) return;
 
         function marcarTodosCheckboxes() {
             var count = 0;
@@ -3196,7 +3199,6 @@
             });
             var areasFormulario = document.querySelectorAll('#divInfraAreaDados, #divInfraAreaDados1, #fldDadosBasicos, #fldOpcoesAvancadas, #fldSuspensao');
             areasFormulario.forEach(function(area) {
-                if (!area) return;
                 var checkboxes = area.querySelectorAll('input[type="checkbox"].infraCheckbox');
                 checkboxes.forEach(function(cb) {
                     if (cb.name && cb.name.indexOf('chkInfraItem') === 0) return;
@@ -3206,9 +3208,9 @@
             if (count > 0) console.log('[Auto Checkboxes] ' + count + ' marcado(s)');
         }
 
-        console.log('[Auto Checkboxes] Inicializado v45.47');
+        console.log('[Auto Checkboxes] Script carregado v3.2');
 
-        var checkboxObserver = new MutationObserver(function(mutations) {
+        var observer = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                     mutation.addedNodes.forEach(function(node) {
@@ -3221,13 +3223,13 @@
                 }
             });
         });
+        observer.observe(document.body, { childList: true, subtree: true });
 
-        checkboxObserver.observe(document.body, { childList: true, subtree: true });
         setInterval(marcarTodosCheckboxes, 2000);
         setTimeout(marcarTodosCheckboxes, 1000);
         setTimeout(marcarTodosCheckboxes, 2500);
         setTimeout(marcarTodosCheckboxes, 4000);
-    }
+    })();
 
 
 
@@ -3241,83 +3243,170 @@
 
         const style = document.createElement('style');
         style.textContent = `
-            :root { --eproc-blue: #0081c2; --eproc-red: #d9534f; --eproc-yellow: #f39c12; }
+            :root { --eproc-blue: #0081c2; --eproc-blue-dark: #006a9e; --eproc-red: #d9534f; --eproc-yellow: #f39c12; --eproc-green: #5cb85c; --shadow-sm: 0 1px 3px rgba(0,0,0,0.08); --shadow-md: 0 4px 12px rgba(0,0,0,0.1); --shadow-lg: 0 10px 30px rgba(0,0,0,0.12); --radius: 10px; --radius-sm: 6px; }
             .eproc-lembretes-click { transition: transform 0.1s cubic-bezier(0.4,0,0.2,1), box-shadow 0.1s cubic-bezier(0.4,0,0.2,1), background-color 0.2s, opacity 0.2s !important; }
             .eproc-lembretes-click:active { transform: scale(0.92) !important; box-shadow: inset 0 3px 5px rgba(0,0,0,0.2) !important; }
             #lembretes-bell-btn:hover #lembretes-sino-svg { fill: var(--eproc-blue) !important; }
             #eproc-lembretes-modal { position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.5);z-index:10000;display:flex;justify-content:center;align-items:center;backdrop-filter:blur(2px);font-family:'Roboto',Arial,sans-serif; }
-            #eproc-lembretes-modal .modern-modal { background:#fff;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,0.15);border:1px solid #e0e0e0;width:780px;position:relative; }
-            #eproc-lembretes-modal .modern-modal-header { background:#fdfdfd;padding:15px 20px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;color:#333;font-weight:bold;font-size:15px;border-radius:8px 8px 0 0; }
+            #eproc-lembretes-modal .modern-modal { background:#fff;border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid rgba(0,0,0,0.06);width:840px;margin:0 auto;overflow:hidden;max-height:88vh;display:flex;flex-direction:column; }
+            #eproc-lembretes-modal .modern-modal-header { background:#fafbfc;padding:16px 24px;border-bottom:1px solid #eaecee;display:flex;align-items:center;justify-content:space-between;color:#1a1a1a;font-weight:600;font-size:15px;letter-spacing:0.01em;flex-shrink:0; }
             #eproc-lembretes-modal .header-title { display:flex;align-items:center;gap:10px; }
-            #eproc-lembretes-modal .header-title svg { fill:var(--eproc-blue);width:22px;height:22px; }
-            #eproc-lembretes-modal .btn-novo-topo { background:var(--eproc-blue);color:#fff;border:none;padding:5px 12px;border-radius:4px;font-size:12px;font-weight:bold;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.1); }
-            #eproc-lembretes-modal .lembretes-list { max-height:450px;overflow-y:auto;padding:20px;background:#fcfcfc; }
-            #eproc-lembretes-modal .lembrete-item { background:#fff;border:1px solid #eee;border-radius:6px;padding:10px 12px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 3px rgba(0,0,0,0.05);transition:all 0.2s; }
-            #eproc-lembretes-modal .lembrete-item:last-child { margin-bottom:0; }
-            #eproc-lembretes-modal .lembrete-item:hover { box-shadow:0 3px 6px rgba(0,0,0,0.1); }
-            #eproc-lembretes-modal .lembrete-info { flex:1;font-size:12px;line-height:1.4;color:#555;padding-right:10px;word-break:break-word; }
-            #eproc-lembretes-modal .lembrete-info strong { font-size:11px;text-transform:uppercase; }
-            #eproc-lembretes-modal .lembrete-date { font-size:11px;color:#999;margin-top:3px;display:block; }
-            #eproc-lembretes-modal .lembrete-actions { display:flex;gap:4px; }
-            #eproc-lembretes-modal .btn-mini { width:26px;height:26px;border-radius:4px;border:none;background:transparent;cursor:pointer;color:#777;display:flex;align-items:center;justify-content:center; }
-            #eproc-lembretes-modal .btn-mini:hover { background:#eee;color:var(--eproc-blue); }
-            #eproc-lembretes-modal .btn-mini.danger:hover { color:var(--eproc-red); }
-            #eproc-lembretes-modal .btn-mini svg { width:14px;height:14px;fill:currentColor; }
-            #eproc-lembretes-modal .modern-modal-body { padding:20px;position:relative; }
-            #eproc-lembretes-modal .form-title { font-size:13px;font-weight:bold;color:#333;margin-bottom:15px;text-transform:uppercase;border-bottom:2px solid var(--eproc-blue);display:inline-block;padding-bottom:3px; }
-            #eproc-lembretes-modal .form-group { margin-bottom:18px; }
-            #eproc-lembretes-modal .form-label { display:block;font-size:13px;font-weight:bold;color:#555;margin-bottom:8px; }
-            #eproc-lembretes-modal .color-selector { display:flex;gap:25px;justify-content:center; }
-            #eproc-lembretes-modal .color-item { display:flex;flex-direction:column;align-items:center;gap:6px; }
-            #eproc-lembretes-modal .color-box { width:32px;height:32px;border-radius:6px;cursor:pointer;border:2px solid transparent;position:relative;box-shadow:0 2px 5px rgba(0,0,0,0.1); }
-            #eproc-lembretes-modal .color-box:hover { transform:scale(1.08);box-shadow:0 4px 10px rgba(0,0,0,0.15); }
-            #eproc-lembretes-modal .color-box.active { border-color:#333;box-shadow:0 4px 8px rgba(0,0,0,0.2);transform:scale(1.1); }
-            #eproc-lembretes-modal .color-box.active::after { content:"\\2713";position:absolute;color:white;font-weight:bold;top:50%;left:50%;transform:translate(-50%,-50%);font-size:14px;text-shadow:0 1px 2px rgba(0,0,0,0.5); }
+            #eproc-lembretes-modal .header-title svg { fill:var(--eproc-blue);width:20px;height:20px; }
+            #eproc-lembretes-modal .btn-fechar { background:none;border:none;color:#999;font-size:26px;cursor:pointer;line-height:1;padding:0 4px;transition:color 0.15s; }
+            #eproc-lembretes-modal .btn-fechar:hover { color:#333; }
+            #eproc-lembretes-modal .modal-body-split { display:flex;flex-direction:row;flex:1;min-height:0;overflow:hidden; }
+            #eproc-lembretes-modal .form-panel { flex:1;padding:24px;border-right:1px solid #eaecee;overflow-y:auto; }
+            #eproc-lembretes-modal .form-title { font-size:11px;font-weight:700;color:var(--eproc-blue);margin-bottom:16px;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid var(--eproc-blue);display:inline-block;padding-bottom:4px; }
+            #eproc-lembretes-modal .form-group { margin-bottom:20px; }
+            #eproc-lembretes-modal .form-label { display:block;font-size:12px;font-weight:600;color:#444;margin-bottom:8px; }
+            #eproc-lembretes-modal .eproc-glass-selector { display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%; }
+            #eproc-lembretes-modal .glass-card { position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 10px;border-radius:10px;cursor:pointer;background:rgba(255,255,255,0.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.8);box-shadow:0 2px 12px rgba(0,0,0,0.04),inset 0 1px 0 rgba(255,255,255,0.9);transition:all 0.35s cubic-bezier(0.16,1,0.3,1); }
+            #eproc-lembretes-modal .glass-card:hover { transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,0,0,0.08),inset 0 1px 0 rgba(255,255,255,0.9); }
+            #eproc-lembretes-modal .glass-card.active { border-color:rgba(0,129,194,0.3);box-shadow:0 4px 20px rgba(0,129,194,0.12),inset 0 1px 0 rgba(255,255,255,0.9);background:rgba(240,247,255,0.7); }
+            #eproc-lembretes-modal .glass-card .glass-icon { width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:rgba(255,255,255,0.7);border:1px solid rgba(0,0,0,0.04);margin-bottom:2px; }
+            #eproc-lembretes-modal .glass-card .glass-icon svg { width:16px;height:16px;fill:#666;transition:fill 0.3s; }
+            #eproc-lembretes-modal .glass-card.active .glass-icon svg { fill:var(--eproc-blue); }
+            #eproc-lembretes-modal .glass-card .glass-title { font-size:9px;font-weight:600;color:#333; }
+            #eproc-lembretes-modal .glass-card .glass-desc { font-size:9px;color:#999;line-height:1.3;text-align:center; }
+            #eproc-lembretes-modal .glass-card .glass-indicator { width:20px;height:2px;border-radius:2px;background:transparent;transition:background 0.3s;margin-top:2px; }
+            #eproc-lembretes-modal .glass-card.active .glass-indicator { background:var(--eproc-blue); }
+            #eproc-lembretes-modal .painel-data { display:block; }
+            #eproc-lembretes-modal .painel-evento { display:none; }
+            #eproc-lembretes-modal.modo-evento .painel-data { display:none; }
+            #eproc-lembretes-modal.modo-evento .painel-evento { display:block; }
+            #eproc-lembretes-modal .color-selector { display:flex;gap:24px;justify-content:center; }
+            #eproc-lembretes-modal .color-item { display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer; }
+            #eproc-lembretes-modal .color-box { width:34px;height:34px;border-radius:8px;cursor:pointer;border:2px solid transparent;position:relative;box-shadow:0 2px 6px rgba(0,0,0,0.08);transition:all 0.2s; }
+            #eproc-lembretes-modal .color-box:hover { transform:scale(1.1);box-shadow:0 4px 12px rgba(0,0,0,0.12); }
+            #eproc-lembretes-modal .color-box.active { box-shadow:0 4px 10px rgba(0,0,0,0.15);transform:scale(1.12); }
+            #eproc-lembretes-modal .color-box.active::after { content:"\\2713";position:absolute;color:white;font-weight:700;top:50%;left:50%;transform:translate(-50%,-50%);font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,0.4); }
             #eproc-lembretes-modal .color-item span { font-size:11px;color:#777;font-weight:500; }
-            #eproc-lembretes-modal textarea.modal-input { width:100%;padding:10px;border:1px solid #ccc;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;min-height:80px;box-sizing:border-box; }
-            #eproc-lembretes-modal textarea.modal-input:focus { outline:none;border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.1); }
+            #eproc-lembretes-modal .color-box.prazo { background:var(--eproc-red); }
+            #eproc-lembretes-modal .color-box.lembrete { background:var(--eproc-yellow); }
+            #eproc-lembretes-modal .color-box.evento { background:var(--eproc-blue); }
+            #eproc-lembretes-modal textarea.modal-input, #eproc-lembretes-modal input.modal-input { width:100%;padding:10px 12px;border:1.5px solid #ddd;border-radius:var(--radius-sm);font-size:13px;font-family:inherit;box-sizing:border-box;outline:none;transition:border-color 0.2s,box-shadow 0.2s;background:#fff; }
+            #eproc-lembretes-modal textarea.modal-input { resize:vertical;min-height:72px; }
+            #eproc-lembretes-modal textarea.modal-input:focus, #eproc-lembretes-modal input.modal-input:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.12); }
             #eproc-lembretes-modal .datetime-group { display:flex;gap:10px;position:relative; }
             #eproc-lembretes-modal .input-wrapper { flex:1;position:relative; }
-            #eproc-lembretes-modal .input-wrapper input { width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#333;outline:none;box-sizing:border-box;font-family:inherit; }
-            #eproc-lembretes-modal .input-wrapper input:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.1); }
-            #eproc-lembretes-modal .clock-icon-btn { position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;color:#666;border-radius:50%; }
-            #eproc-lembretes-modal .clock-icon-btn:hover { background:#eee;color:var(--eproc-blue); }
-            #eproc-lembretes-modal .clock-icon-btn svg { width:16px;height:16px;fill:currentColor; }
-            #eproc-lembretes-modal .modal-actions { display:flex;justify-content:flex-end;gap:10px;margin-top:25px; }
-            #eproc-lembretes-modal .btn-cancelar { background:#fff;color:#555;border:1px solid #ccc;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer; }
-            #eproc-lembretes-modal .btn-cancelar:hover { background:#f8f8f8;color:#333; }
-            #eproc-lembretes-modal .btn-salvar { background:#5cb85c;color:white;border:1px solid #4cae4c;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:bold;cursor:pointer; }
-            #eproc-lembretes-modal .btn-salvar:hover { background:#4cae4c; }
-            #eproc-lembretes-modal .clock-picker-container { position:absolute;bottom:100%;top:auto;right:0;margin-bottom:8px;background:#fff;border-radius:12px;width:220px;box-shadow:0 -5px 25px rgba(0,0,0,0.2);border:1px solid #e0e0e0;display:none;z-index:9999;padding:15px;box-sizing:border-box;transform-origin:bottom right;animation:clock-pop-up 0.2s cubic-bezier(0.175,0.885,0.32,1.275); }
-            #eproc-lembretes-modal .clock-picker-container.active { display:block; }
-            @keyframes clock-pop-up { 0%{transform:scale(0.8);opacity:0;} 100%{transform:scale(1);opacity:1;} }
-            #eproc-lembretes-modal .clock-title { text-align:center;font-size:13px;font-weight:bold;color:var(--eproc-blue);margin-bottom:12px; }
-            #eproc-lembretes-modal .clock-face { width:180px;height:180px;background:#f5f7fa;border-radius:50%;position:relative;margin:0 auto; }
-            #eproc-lembretes-modal .clock-center { position:absolute;top:50%;left:50%;width:6px;height:6px;background:var(--eproc-blue);border-radius:50%;transform:translate(-50%,-50%);z-index:2; }
-            #eproc-lembretes-modal .clock-hand { position:absolute;bottom:50%;left:50%;width:2px;height:40%;background:var(--eproc-blue);transform-origin:bottom center;z-index:1;transition:transform 0.2s cubic-bezier(0.4,0,0.2,1); }
-            #eproc-lembretes-modal .clock-number { position:absolute;width:28px;height:28px;text-align:center;line-height:28px;border-radius:50%;font-size:13px;font-weight:500;cursor:pointer;transform:translate(-50%,-50%);color:#333;transition:background 0.2s,color 0.2s;z-index:3;user-select:none; }
-            #eproc-lembretes-modal .clock-number:hover { background:rgba(0,129,194,0.2); }
-            #eproc-lembretes-modal .clock-number.selected { background:var(--eproc-blue);color:white;box-shadow:0 2px 5px rgba(0,129,194,0.4); }
+            #eproc-lembretes-modal .input-wrapper input { width:100%;padding:9px 12px;border:1.5px solid #ddd;border-radius:var(--radius-sm);font-size:13px;color:#333;outline:none;box-sizing:border-box;font-family:inherit;transition:border-color 0.2s,box-shadow 0.2s; }
+            #eproc-lembretes-modal .input-wrapper input:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.12); }
+
+            #evento-section { border:1.5px solid #e0e2e6;border-radius:var(--radius);padding:16px;background:#f8f9fb;margin-bottom:16px; }
+            #evento-section .evento-section-title { font-size:12px;font-weight:700;color:var(--eproc-blue);margin-bottom:12px;display:flex;align-items:center;gap:6px; }
+            #evento-section .evento-processo-row { display:flex;gap:8px;margin-bottom:10px; }
+            #evento-section .evento-processo-row input { flex:1;padding:8px 12px;border:1.5px solid #ddd;border-radius:var(--radius-sm);font-size:13px;font-family:'Roboto',monospace;outline:none;transition:border-color 0.2s,box-shadow 0.2s; }
+            #evento-section .evento-processo-row input:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.12); }
+            #evento-section .evento-btn-add { background:#fff;color:var(--eproc-blue);border:1.5px solid var(--eproc-blue);border-radius:var(--radius-sm);padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.15s; }
+            #evento-section .evento-btn-add:hover { background:#eef8fa;border-color:var(--eproc-blue-dark); }
+            #evento-section .evento-tags { display:flex;flex-wrap:wrap;gap:5px;min-height:28px;margin-bottom:12px;padding:6px 8px;background:#fff;border-radius:var(--radius-sm);border:1px dashed #d0d4da; }
+            #evento-section .evento-tags:empty { display:none; }
+            #evento-section .evento-tag-processo, #evento-section .evento-tag { display:inline-flex;align-items:center;gap:5px;padding:3px 8px 3px 10px;font-size:11px;font-weight:600;border-radius:20px;line-height:1.4; }
+            #evento-section .evento-tag-processo { background:#fff3e0;color:#e65100;border:1px solid #ffb74d; }
+            #evento-section .evento-tag { background:#e3f2fd;color:var(--eproc-blue);border:1px solid var(--eproc-blue); }
+            #evento-section .evento-tag-remove { cursor:pointer;font-size:14px;line-height:1;opacity:0.35;transition:opacity 0.15s; }
+            #evento-section .evento-tag-remove:hover { opacity:1;color:var(--eproc-red); }
+            #evento-section .evento-search { width:100%;padding:8px 12px 8px 34px;border:1.5px solid #ddd;border-radius:var(--radius-sm);font-size:13px;outline:none;font-family:inherit;transition:border-color 0.2s,box-shadow 0.2s;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='15' viewBox='0 0 24 24' fill='%23999'%3E%3Cpath d='M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'/%3E%3C/svg%3E") no-repeat 12px center; }
+            #evento-section .evento-search:focus { border-color:var(--eproc-blue);box-shadow:0 0 0 3px rgba(0,129,194,0.12); }
+            #evento-section .evento-counter { font-size:11px;color:#888;margin:6px 0 10px; }
+            #evento-section .evento-list { max-height:170px;overflow-y:auto;border:1.5px solid #e8eaed;border-radius:var(--radius-sm);background:#fff; }
+            #evento-section .evento-list::-webkit-scrollbar { width:5px; }
+            #evento-section .evento-list::-webkit-scrollbar-track { background:#f5f5f5;border-radius:6px; }
+            #evento-section .evento-list::-webkit-scrollbar-thumb { background:#ccc;border-radius:6px; }
+            #evento-section .evento-item { display:flex;align-items:center;gap:8px;padding:5px 10px;font-size:12px;color:#444;cursor:pointer;transition:background 0.12s;border-bottom:1px solid #f0f1f3; }
+            #evento-section .evento-item:last-child { border-bottom:none; }
+            #evento-section .evento-item.checked { background:#e3f2fd; }
+            #evento-section .evento-item:hover { background:#eef8fa; }
+            #evento-section .evento-item input[type="checkbox"] { margin:0;cursor:pointer;flex-shrink:0;accent-color:var(--eproc-blue); }
+            #evento-section .evento-item .evento-text { flex:1;line-height:1.3; }
+            #evento-section .evento-item .evento-text-wrap { flex:1;display:flex;flex-direction:column;min-width:0; }
+            #evento-section .evento-item .evento-sub { font-size:10px;color:#9ca3af;line-height:1.3;margin-top:1px; }
+            .dica { background:#f0f7ff;border-left:3px solid var(--eproc-blue);border-radius:4px;padding:8px 10px;margin-top:8px;font-size:11.5px;color:#444;line-height:1.6; }
+            .dica strong { color:var(--eproc-blue); }
+            .dica-lamp { display:flex;align-items:flex-start;gap:7px;background:#f5f7fa;border:1px solid #e0e4e8;border-radius:var(--radius-sm);padding:7px 10px;margin-top:6px;font-size:11px;color:#666; }
+            .dica-lamp svg { fill:var(--eproc-yellow);flex-shrink:0;margin-top:1px; }
+            #eproc-lembretes-modal .modal-actions { display:flex;justify-content:flex-end;gap:10px;margin-top:24px;padding-top:16px;border-top:1px solid #eaecee; }
+            #eproc-lembretes-modal .btn-cancelar { background:#fff;color:#666;border:1.5px solid #ddd;border-radius:var(--radius-sm);padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s; }
+            #eproc-lembretes-modal .btn-cancelar:hover { background:#f8f8f8;color:#333;border-color:#ccc; }
+            #eproc-lembretes-modal .btn-salvar { background:var(--eproc-blue);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 20px;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s; }
+            #eproc-lembretes-modal .btn-salvar:hover { background:var(--eproc-blue-dark);box-shadow:0 4px 12px rgba(0,129,194,0.3); }
+            #eproc-lembretes-modal .list-panel { width:300px;padding:24px 20px;background:#fafbfc;overflow-y:auto; }
+            #eproc-lembretes-modal .list-panel::-webkit-scrollbar { width:5px; }
+            #eproc-lembretes-modal .list-panel::-webkit-scrollbar-track { background:#f5f5f5;border-radius:6px; }
+            #eproc-lembretes-modal .list-panel::-webkit-scrollbar-thumb { background:#ccc;border-radius:6px; }
+            #eproc-lembretes-modal .list-title { font-size:12px;font-weight:600;color:#555;margin-bottom:16px;text-transform:uppercase;letter-spacing:0.03em; }
+            #eproc-lembretes-modal .lembrete-item { background:#fff;border:1px solid #eaecee;border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04);transition:box-shadow 0.15s; }
+            #eproc-lembretes-modal .lembrete-item:last-child { margin-bottom:0; }
+            #eproc-lembretes-modal .lembrete-item:hover { box-shadow:0 3px 8px rgba(0,0,0,0.06); }
+            #eproc-lembretes-modal .lembrete-info { font-size:12px;line-height:1.5;color:#555; }
+            #eproc-lembretes-modal .lembrete-info strong { font-size:12px;text-transform:uppercase;letter-spacing:0.03em; }
+            #eproc-lembretes-modal .lembrete-date { font-size:11px;color:#999;margin-top:4px;display:block; }
+            #eproc-lembretes-modal .lembrete-evento-detail { font-size:10px;color:var(--eproc-blue);margin-top:6px;padding:4px 8px;background:#e3f2fd;border-radius:4px;display:inline-block;line-height:1.4; }
+            #eproc-lembretes-modal .lembrete-actions { display:flex;gap:4px;margin-top:8px;justify-content:flex-end; }
+            #eproc-lembretes-modal .btn-mini { width:28px;height:28px;border-radius:var(--radius-sm);border:none;background:transparent;cursor:pointer;color:#888;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s; }
+            #eproc-lembretes-modal .btn-mini:hover { background:#eee;color:var(--eproc-blue); }
+            #eproc-lembretes-modal .btn-mini.danger:hover { color:var(--eproc-red); }
+            #eproc-lembretes-modal .btn-mini svg { width:15px;height:15px;fill:currentColor; }
+            #eproc-lembretes-container .btn-mini { width:28px;height:28px;border-radius:var(--radius-sm);border:none;background:transparent;cursor:pointer;color:#888;display:inline-flex;align-items:center;justify-content:center;transition:all 0.15s; }
+            #eproc-lembretes-container .btn-mini:hover { background:#eee;color:var(--eproc-blue); }
+            #eproc-lembretes-container .btn-mini svg { width:15px;height:15px;fill:currentColor; }
             #eproc-lembretes-container { position:fixed;top:80px;right:20px;display:flex;flex-direction:column;gap:15px;z-index:9998;font-family:'Roboto',Arial,sans-serif; }
-            .eproc-postit { width:280px;padding:16px;position:relative;font-size:13px;color:#333;background:#fff;border-radius:12px;box-shadow:8px 8px 24px rgba(0,0,0,0.06),-4px -4px 16px rgba(255,255,255,0.8);animation:postit-slide-in 0.3s cubic-bezier(0.175,0.885,0.32,1.275);word-break:break-word; }
-            @keyframes postit-slide-in { 0%{transform:translateX(100%);opacity:0;} 100%{transform:translateX(0);opacity:1;} }
-            .eproc-postit-header { font-weight:bold;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center; }
-            .eproc-postit-body { line-height:1.5; }
-            .eproc-postit-link { color:var(--eproc-blue);font-weight:bold;text-decoration:none; }
-            .eproc-postit-link:hover { text-decoration:underline; }
-            .eproc-postit-actions { display:flex;gap:8px; }
-            .eproc-postit-btn { width:28px;height:28px;border:none;background:#f9f9f9;cursor:pointer;opacity:0.7;display:flex;align-items:center;justify-content:center;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.1); }
-            .eproc-postit-btn:hover { opacity:1;background:#eee;box-shadow:0 2px 5px rgba(0,0,0,0.15); }
-            .eproc-postit-btn svg { width:17px;height:17px;fill:currentColor; }
-            @keyframes pulse-neon-var { 0%{box-shadow:0 0 0 0 var(--pulse-color,rgba(217,83,79,0.7));} 70%{box-shadow:0 0 0 10px rgba(0,0,0,0);} 100%{box-shadow:0 0 0 0 rgba(0,0,0,0);} }
-            .eproc-sino-pulse { animation:pulse-neon-var 2s infinite; }
+            #eproc-lembretes-container .eproc-postit { width:370px;padding:18px;font-size:13px;color:#333;background:#fff;border-radius:14px;border:1px solid rgba(0,0,0,0.06);box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 16px rgba(0,0,0,0.06),8px 8px 28px rgba(0,0,0,0.06),-4px -4px 16px rgba(255,255,255,0.9);position:relative;overflow:visible;animation:postit-in 0.4s cubic-bezier(0.16,1,0.3,1);word-break:break-word; }
+            #eproc-lembretes-container .eproc-postit.postit-hidden { display:none; }
+            #eproc-lembretes-container .eproc-postit::before { content:'';position:absolute;top:0;left:0;width:6px;height:100%;background:linear-gradient(to bottom,transparent 0%,var(--postit-color,var(--eproc-blue)) 6%,var(--postit-color,var(--eproc-blue)) 94%,transparent 100%);border-radius:14px 0 0 14px;box-shadow:2px 0 8px -3px rgba(0,0,0,0.25),inset -1px 0 2px rgba(255,255,255,0.3); }
+            #eproc-lembretes-container .eproc-postit::after { content:'';position:absolute;top:0;left:0;width:6px;height:100%;border-radius:14px 0 0 14px;background:linear-gradient(to right,rgba(255,255,255,0.12) 0%,transparent 50%,rgba(0,0,0,0.08) 100%);pointer-events:none; }
+            @keyframes postit-in { 0%{transform:translateX(40px);opacity:0;} 100%{transform:translateX(0);opacity:1;} }
+            @keyframes postit-out { 0%{opacity:1;transform:translateX(0);} 100%{opacity:0;transform:translateX(20px);} }
+            #eproc-lembretes-container .eproc-postit-header { font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;font-size:12px; }
+            #eproc-lembretes-container .eproc-postit-body { line-height:1.6;font-size:13px;font-weight:700; }
+            #eproc-lembretes-container .eproc-postit-link { color:var(--eproc-blue);font-weight:600;text-decoration:none;border-bottom:1px dotted var(--eproc-blue); }
+            #eproc-lembretes-container .eproc-postit-link:hover { border-bottom-style:solid; }
+            #eproc-lembretes-container .snooze-wrapper { position:relative;display:inline-flex; }
+            #eproc-lembretes-container .snooze-dropdown { position:absolute;top:100%;right:0;margin-top:4px;background:#fff;border:1px solid #e0e2e6;border-radius:var(--radius-sm);box-shadow:0 6px 20px rgba(0,0,0,0.12);min-width:170px;z-index:99999;padding:4px 0;display:none; }
+            #eproc-lembretes-container .snooze-dropdown.open { display:block; }
+            #eproc-lembretes-container .snooze-dropdown-item { padding:8px 14px;font-size:12px;color:#333;cursor:pointer;display:flex;align-items:center;gap:8px;transition:background 0.12s;border:none;background:none;width:100%;text-align:left;font-family:inherit; }
+            #eproc-lembretes-container .snooze-dropdown-header { padding:8px 14px 4px;font-size:11px;font-weight:600;color:#888; }
+            #eproc-lembretes-container .snooze-dropdown-item:hover { background:#f0f7ff;color:var(--eproc-blue); }
+            #eproc-lembretes-container .snooze-dropdown-item svg { width:14px;height:14px;fill:#888;flex-shrink:0; }
+            #eproc-lembretes-container .snooze-dropdown-item:hover svg { fill:var(--eproc-blue); }
+            #eproc-lembretes-container .snooze-divider { height:1px;background:#eaecee;margin:4px 0; }
+            #eproc-lembretes-container .eproc-postit-evento { font-size:11px;color:var(--eproc-blue);margin-top:10px;padding:8px 10px;background:#e3f2fd;border-radius:var(--radius-sm);line-height:1.5; }
+            @keyframes pulse-neon { 0%{box-shadow:0 0 0 0 rgba(217,83,79,0.6);} 70%{box-shadow:0 0 0 10px rgba(0,0,0,0);} 100%{box-shadow:0 0 0 0 rgba(0,0,0,0);} }
+            .evento-any-row { display:flex;align-items:center;justify-content:space-between;padding:12px 14px;margin:12px 0 4px;border-radius:8px;background:#fff;border:1.5px solid #e4e7eb;cursor:pointer;transition:all 0.25s cubic-bezier(0.16,1,0.3,1);position:relative; }
+            .evento-any-row:hover { border-color:var(--eproc-blue);box-shadow:0 4px 16px rgba(0,129,194,0.08); }
+            .evento-any-row:active { transform:scale(0.99); }
+            .evento-any-row.active { border-color:var(--eproc-blue);background:#f5faff;box-shadow:0 4px 20px rgba(0,129,194,0.10); }
+            .evento-any-left { display:flex;align-items:center;gap:10px; }
+            .evento-any-icon { width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#f0f4f8;border:1px solid #e4e7eb;flex-shrink:0;transition:all 0.25s; }
+            .evento-any-icon svg { width:16px;height:16px;fill:#7a828e;transition:fill 0.25s; }
+            .evento-any-row.active .evento-any-icon { background:#e3f2fd;border-color:rgba(0,129,194,0.2); }
+            .evento-any-row.active .evento-any-icon svg { fill:var(--eproc-blue); }
+            .evento-any-label { font-size:12px;font-weight:600;color:#1a1a1a;transition:color 0.25s; }
+            .evento-any-row.active .evento-any-label { color:var(--eproc-blue); }
+            .evento-any-desc { font-size:10px;color:#8a929e;margin-top:1px; }
         `;
         document.head.appendChild(style);
 
+        const EPROC_EVENTS = [
+            "Intimação/Citação/Notificação","Juntada/Petição/Manifestação/Procuração/Habilitação/Certidão","Recurso/Apelação/Agravo/Embargos","Sentença/Acórdão/Julgamento","Decisão/Despacho","Ação rescisória","Acordo/Conciliação","Admissão","Alegações finais","Alteração","Alvará","Anulação","Arquivamento","Ato ordinatório","Audiência","Avaliação","Baixa","Bloqueio","Cálculo","Carta de ordem/Carta precatória","Conclusos","Confissão","Contestação","Contrarrazões","Conversão","Cumprimento de sentença","Custas","Depoimento","Desarquivamento","Desistência","Desmembramento","Distribuído","Exceção","Execução","Expedida","Extinção","Fiança","Gratuidade","Habeas corpus/Mandado de segurança","Homologação","Honorários","Impugnação","Incidente","Indulto","Interrogatório","Laudo","Liberdade provisória","Liminar","Livramento condicional","Mandado/Ofício","Nomeação","Parecer","Pauta","Penhora","Perícia","Precatório","Prisão","Progressão de regime","Publicação","Recebidos os autos","Reclamação","Remessa/Remetidos","Renúncia","Réplica","Revelia","RPV","Sustentação oral","Suspensão","Transação penal","Trânsito em julgado","Tutela provisória","Vista"
+        ];
+
+        const EVENT_DISPLAY_NAMES = {
+            "Intimação/Citação/Notificação": "Intimação",
+            "Juntada/Petição/Manifestação/Procuração/Habilitação/Certidão": "Petição",
+            "Recurso/Apelação/Agravo/Embargos": "Recursos",
+            "Sentença/Acórdão/Julgamento": "Sentença"
+        };
+
         const dbName = 'EprocLembretesDB'; const storeName = 'lembretes'; let db;
         const openDB = () => new Promise((resolve, reject) => {
-            const req = indexedDB.open(dbName, 1);
-            req.onupgradeneeded = (e) => { let d = e.target.result; if (!d.objectStoreNames.contains(storeName)) d.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true }); };
+            const req = indexedDB.open(dbName, 2);
+            req.onupgradeneeded = (e) => {
+                const d = e.target.result;
+                if (!d.objectStoreNames.contains(storeName)) {
+                    d.createObjectStore(storeName, { keyPath: 'id', autoIncrement: true });
+                }
+            };
             req.onsuccess = (e) => { db = e.target.result; resolve(db); };
             req.onerror = (e) => reject(e.target.error);
         });
@@ -3325,6 +3414,8 @@
         const saveLembrete = async (l) => { await openDB(); return new Promise((res, rej) => { const r = db.transaction(storeName,'readwrite').objectStore(storeName)[l.id?'put':'add'](l); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); };
         const deleteLembrete = async (id) => { await openDB(); return new Promise((res, rej) => { const r = db.transaction(storeName,'readwrite').objectStore(storeName).delete(id); r.onsuccess = () => res(); r.onerror = () => rej(r.error); }); };
 
+
+        function removerAcentosEv(str) { return str?str.normalize("NFD").replace(/[\u0300-\u036f]/g,""):""; }
 
         let bellBtn;
         const insertBell = () => {
@@ -3365,8 +3456,8 @@
             bellBtn = document.createElement('a');
             bellBtn.id = 'lembretes-bell-btn';
             bellBtn.className = 'eproc-lembretes-click';
-            bellBtn.style.cssText = 'cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0.25rem 0.5rem;margin-right:6px;';
-            bellBtn.innerHTML = `<div style="position:relative;display:flex;align-items:center;"><svg id="lembretes-sino-svg" viewBox="0 0 24 24" style="width:20px;height:20px;fill:none;stroke:var(--eproc-blue);stroke-width:2;transition:all 0.2s;"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg><span id="eproc-sino-badge" class="eproc-sino-pulse" style="display:none;position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;"></span></div>`;
+            bellBtn.style.cssText = 'cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0.25rem 0.5rem;margin-right:6px;position:relative;';
+            bellBtn.innerHTML = `<div style="display:flex;align-items:center;"><svg id="lembretes-sino-svg" viewBox="0 0 24 24" style="width:20px;height:20px;fill:none;stroke:var(--eproc-blue);stroke-width:2;transition:all 0.2s;"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg><span id="eproc-sino-badge" style="display:none;position:absolute;top:4px;right:8px;width:9px;height:9px;border-radius:50%;background:var(--eproc-red);animation:pulse-neon 2s infinite;"></span></div>`;
             bellBtn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openDashboard(); };
 
             // Monta o wrapper: sino + "?"
@@ -3377,27 +3468,28 @@
             dropSpan.parentNode.replaceChild(rightWrapper, dropSpan);
         };
 
-        const updateSino = async () => {
+        const updateSino = () => {
             if (!bellBtn) return;
-            const all = await getAllLembretes();
-            const pendentes = all.filter(l => l.status === 'ativo');
-            const vencidos = pendentes.filter(l => new Date(l.datetime) <= new Date());
             const badge = document.getElementById('eproc-sino-badge');
             const svg = document.getElementById('lembretes-sino-svg');
+            const postits = document.querySelectorAll('#eproc-lembretes-container .eproc-postit[data-lembrete-id]');
             if (badge && svg) {
-                if (vencidos.length > 0) {
-                    const oldest = vencidos.sort((a,b) => new Date(a.datetime) - new Date(b.datetime))[0];
-                    const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
-                    const cor = colors[oldest.type] || colors['LEMBRETE'];
-                    badge.style.display = 'block'; badge.style.background = cor; badge.style.setProperty('--pulse-color', cor);
+                if (postits.length > 0) {
+                    badge.style.display = 'block';
                     svg.style.fill = 'var(--eproc-blue)';
                 } else { badge.style.display = 'none'; svg.style.fill = 'none'; }
             }
         };
 
-        let editId = null, isMinuteMode = false, selectedHour = '06';
+        let editId = null, selectedEvents = new Set(), linkedProcesses = new Set(), selectedProcessInput = '', qualquerEvento = false;
 
-        const modalHtml = `<div id="eproc-lembretes-modal" style="display:none;"><div class="modern-modal" style="width:780px;"><div class="modern-modal-header"><div class="header-title"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg> Lembretes Din\u00e2micos</div><div style="display:flex;align-items:center;gap:15px;"><button class="btn-novo-topo eproc-lembretes-click" id="btn-novo-lembrete">+ Novo</button><button class="eproc-lembretes-click" id="btn-close-dashboard" style="background:none;border:none;color:#999;font-size:24px;cursor:pointer;line-height:1;" title="Fechar">&times;</button></div></div><div style="display:flex;flex-direction:row;min-height:380px;"><div class="modern-modal-body" id="lembretes-form-container" style="flex:1;border-right:1px solid #eee;"><div class="form-title" id="form-lembrete-title">Criar Lembrete</div><div class="form-group"><label class="form-label">Categoria do Lembrete</label><div class="color-selector" id="color-selector"><div class="color-item"><div class="color-box active eproc-lembretes-click" style="background:var(--eproc-red);" data-type="PRAZO"></div><span>Prazo</span></div><div class="color-item"><div class="color-box eproc-lembretes-click" style="background:var(--eproc-yellow);" data-type="LEMBRETE"></div><span>Lembrete</span></div><div class="color-item"><div class="color-box eproc-lembretes-click" style="background:var(--eproc-blue);" data-type="EVENTO"></div><span>Evento</span></div></div></div><div class="form-group"><label class="form-label">Texto do Lembrete</label><textarea id="lembrete-texto" class="modal-input" placeholder="Digite seu texto. N\u00fameros de processos ser\u00e3o convertidos em links..."></textarea></div><div class="form-group"><label class="form-label">Exibir a partir de (hora opcional)</label><div class="datetime-group"><div class="input-wrapper"><input type="date" id="lembrete-data"></div><div class="input-wrapper"><input type="text" id="lembrete-hora" placeholder="06:00" maxlength="5"><button class="clock-icon-btn eproc-lembretes-click" id="lembrete-open-clock" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="12 6 12 12 16 14" fill="none" stroke="currentColor" stroke-width="2"/></svg></button><div class="clock-picker-container" id="lembrete-clock"><div class="clock-title" id="lembrete-clock-title">Selecione a Hora</div><div class="clock-face" id="lembrete-clock-face"><div class="clock-center"></div><div class="clock-hand" id="lembrete-clock-hand"></div></div></div></div></div><span style="display:block;font-size:10px;color:#888;margin-top:4px;text-align:right;">*Sem data/hora: agendado para o dia posterior.</span></div><div class="modal-actions"><button class="btn-cancelar eproc-lembretes-click" id="btn-cancelar-lembrete">Limpar</button><button class="btn-salvar eproc-lembretes-click" id="btn-salvar-lembrete">Salvar Lembrete</button></div></div><div class="lembretes-list" id="lembretes-list-container" style="flex:1;max-height:450px;overflow-y:auto;padding:20px;background:#fcfcfc;"></div></div></div></div><div id="eproc-lembretes-container"></div>`;
+        if (!document.getElementById('eproc-lembretes-container')) {
+            const postitContainer = document.createElement('div');
+            postitContainer.id = 'eproc-lembretes-container';
+            document.body.appendChild(postitContainer);
+        }
+
+        const modalHtml = `<div id="eproc-lembretes-modal" style="display:none;"><div class="modern-modal"><div class="modern-modal-header"><div class="header-title"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"></path></svg> Lembretes Din\u00e2micos</div><div style="display:flex;align-items:center;gap:15px;"><button class="btn-fechar" id="btn-close-dashboard">&times;</button></div></div><div class="modal-body-split"><div class="form-panel"><div class="form-title" id="form-lembrete-title">Criar Lembrete</div><div class="form-group"><label class="form-label">Categoria do Lembrete</label><div class="color-selector" id="color-selector"><div class="color-item"><div class="color-box prazo active" data-type="PRAZO"></div><span>Prazo</span></div><div class="color-item"><div class="color-box lembrete" data-type="LEMBRETE"></div><span>Lembrete</span></div><div class="color-item"><div class="color-box evento" data-type="EVENTO"></div><span>Evento</span></div></div></div><div class="form-group"><label class="form-label">Tipo de Disparo</label><div class="eproc-glass-selector"><div class="glass-card active" data-modo="data"><div class="glass-icon"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg></div><div class="glass-title">Data Certa</div><div class="glass-desc">Disparo em data fixa</div><div class="glass-indicator"></div></div><div class="glass-card" data-modo="evento"><div class="glass-icon"><svg viewBox="0 0 24 24"><path d="M9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zM19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg></div><div class="glass-title">Evento EPROC</div><div class="glass-desc">Disparo por movimentação</div><div class="glass-indicator"></div></div></div></div><div class="painel-data"><div class="form-group"><label class="form-label">Data e Hora</label><div class="datetime-group"><div class="input-wrapper"><input type="date" id="lembrete-data"></div><div class="input-wrapper"><input type="time" id="lembrete-hora" step="60"></div></div><div class="dica"><strong>Sem data definida?</strong> O lembrete aparecer\u00e1 amanh\u00e3 a partir das 06:00.</div><div class="dica"><strong>Sem hora definida?</strong> O lembrete aparecer\u00e1 \u00e0s 06:00 do dia selecionado.</div></div></div><div class="painel-evento"><div id="evento-section"><div class="evento-section-title">Vincular a Eventos do Sistema</div><div class="dica" style="margin-bottom:12px;">\uD83D\uDD17 Para vincular seu lembrete a um ou mais eventos do sistema, digite o n\u00famero de, pelo menos, um processo.</div><div class="evento-processo-row"><input type="text" id="evento-processo-input" placeholder="Ex: 1001275-76.2026.8.13.0079"><button class="evento-btn-add" id="evento-btn-add-processo">+ Vincular</button></div><div class="evento-tags" id="evento-processo-tags"></div><input type="text" class="evento-search" id="evento-search-input" placeholder="Buscar eventos... (digite para filtrar)"><div class="evento-counter"><span id="evento-count">0</span> eventos encontrados</div><div class="evento-list" id="evento-list"></div><div class="evento-tags" id="evento-selected-tags"></div><label class="evento-any-row" id="evento-any-row"><div class="evento-any-left"><div class="evento-any-icon"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div><div><div class="evento-any-label">Qualquer evento que ocorra neste(s) processo(s)</div><div class="evento-any-desc">O alerta ser\u00e1 disparado para toda e qualquer movimenta\u00e7\u00e3o processual</div></div></div><input type="checkbox" id="evento-any-checkbox" style="display:none"></label></div></div><div class="form-group" style="margin-top:4px;"><label class="form-label">Texto do Lembrete</label><textarea id="lembrete-texto" class="modal-input" placeholder="Ex: Verificar se houve movimenta\u00e7\u00e3o de baixa definitiva..."></textarea><div class="dica-lamp"><svg width="14" height="14" viewBox="0 0 24 24"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6C7.8 12.16 7 10.63 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z"/></svg><span>N\u00fameros de processo aparecer\u00e3o como <strong>links diretos</strong> no post-it.</span></div></div><div class="modal-actions"><button class="btn-cancelar" id="btn-cancelar-lembrete">Cancelar</button><button class="btn-salvar" id="btn-salvar-lembrete">Salvar</button></div></div><div class="list-panel"><div class="list-title">Lembretes Ativos</div><div id="lembretes-list-container"></div></div></div></div>`;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
         const modal = document.getElementById('eproc-lembretes-modal');
@@ -3405,52 +3497,184 @@
         const txtData = document.getElementById('lembrete-data');
         const txtHora = document.getElementById('lembrete-hora');
         const txtTexto = document.getElementById('lembrete-texto');
-        const clockBtn = document.getElementById('lembrete-open-clock');
-        const clockPicker = document.getElementById('lembrete-clock');
-        const clockFace = document.getElementById('lembrete-clock-face');
-        const clockHand = document.getElementById('lembrete-clock-hand');
-        const clockTitle = document.getElementById('lembrete-clock-title');
-
         txtHora.addEventListener('input', function(e) { let v = e.target.value.replace(/\D/g,''); if(v.length>2) v=v.substring(0,2)+':'+v.substring(2,4); e.target.value=v; });
-        clockBtn.addEventListener('click', (e) => { e.stopPropagation(); if(clockPicker.classList.contains('active')) clockPicker.classList.remove('active'); else { clockPicker.classList.add('active'); renderHours(); } });
-        document.addEventListener('click', (e) => { if(!clockPicker.contains(e.target)&&!clockBtn.contains(e.target)&&!txtHora.contains(e.target)) clockPicker.classList.remove('active'); });
 
-        function positionHand(value, isMins) { clockHand.style.transform = `rotate(${isMins ? value*6 : value*30}deg)`; }
-        function renderNumbers(array, isMins) {
-            clockFace.querySelectorAll('.clock-number').forEach(n => n.remove());
-            const center = 90, radius = 70;
-            array.forEach((num, index) => {
-                const el = document.createElement('div'); el.className = 'clock-number';
-                el.textContent = isMins ? String(num).padStart(2,'0') : num;
-                const angle = ((index+1)*(360/array.length))-90, rad = angle*(Math.PI/180);
-                el.style.left = `${center+radius*Math.cos(rad)}px`;
-                el.style.top = `${center+radius*Math.sin(rad)}px`;
-                el.addEventListener('click', (e) => { e.stopPropagation(); if(!isMins){ selectedHour=String(num).padStart(2,'0'); isMinuteMode=true; renderMinutes(); } else { txtHora.value=`${selectedHour}:${String(num).padStart(2,'0')}`; clockPicker.classList.remove('active'); isMinuteMode=false; } });
-                clockFace.appendChild(el);
+        const eventoProcessoInput = document.getElementById('evento-processo-input');
+        const eventoBtnAdd = document.getElementById('evento-btn-add-processo');
+        const eventoProcessoTags = document.getElementById('evento-processo-tags');
+        const eventoSearchInput = document.getElementById('evento-search-input');
+        const eventoCount = document.getElementById('evento-count');
+        const eventoList = document.getElementById('evento-list');
+        const eventoSelectedTags = document.getElementById('evento-selected-tags');
+        const eventoAnyCheckbox = document.getElementById('evento-any-checkbox');
+        const eventoAnyRow = document.getElementById('evento-any-row');
+
+        if (eventoAnyCheckbox) {
+            eventoAnyCheckbox.addEventListener('change', function() {
+                qualquerEvento = this.checked;
+                if (eventoAnyRow) eventoAnyRow.classList.toggle('active', this.checked);
+                eventoSearchInput.disabled = this.checked;
+                eventoList.style.pointerEvents = this.checked ? 'none' : '';
+                eventoList.style.opacity = this.checked ? '0.35' : '1';
+                eventoSearchInput.style.opacity = this.checked ? '0.35' : '1';
+                if (eventoCount) eventoCount.style.opacity = this.checked ? '0.35' : '1';
+                if (this.checked) {
+                    selectedEvents.clear();
+                    renderEventTags();
+                    renderEventList(eventoSearchInput.value, selectedEvents);
+                }
             });
         }
-        function renderHours() { isMinuteMode=false; clockTitle.textContent="Selecione a Hora"; renderNumbers([1,2,3,4,5,6,7,8,9,10,11,12],false); positionHand(6,false); }
-        function renderMinutes() { clockTitle.textContent="Selecione os Minutos"; renderNumbers([5,10,15,20,25,30,35,40,45,50,55,0],true); positionHand(0,true); }
 
         document.querySelectorAll('#color-selector .color-box').forEach(box => { box.addEventListener('click', () => { document.querySelectorAll('#color-selector .color-box').forEach(b => b.classList.remove('active')); box.classList.add('active'); }); });
 
-        const resetForm = () => { editId=null; txtTexto.value=''; txtData.value=''; txtHora.value=''; document.getElementById('form-lembrete-title').textContent='Criar Lembrete'; document.getElementById('btn-cancelar-lembrete').textContent='Limpar'; document.querySelectorAll('#color-selector .color-box').forEach(b=>b.classList.remove('active')); document.querySelector('#color-selector .color-box[data-type="LEMBRETE"]').classList.add('active'); };
+        // Glass card toggle
+        document.querySelector('#eproc-lembretes-modal .eproc-glass-selector')?.addEventListener('click', (e) => {
+            const card = e.target.closest('.glass-card');
+            if (!card) return;
+            document.querySelectorAll('#eproc-lembretes-modal .glass-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            const isEvento = card.dataset.modo === 'evento';
+            document.getElementById('eproc-lembretes-modal').classList.toggle('modo-evento', isEvento);
+            if (isEvento && eventoList.children.length === 0) renderEventList('', selectedEvents);
+        });
+
+        // Event search
+        function renderEventList(filter, selected) {
+            const f = filter ? EPROC_EVENTS.filter(e => {
+                const raw = removerAcentosEv(e.toUpperCase());
+                const dn = EVENT_DISPLAY_NAMES[e];
+                const dnClean = dn ? removerAcentosEv(dn.toUpperCase()) : '';
+                const fClean = removerAcentosEv(filter.toUpperCase());
+                return raw.includes(fClean) || (dnClean && dnClean.includes(fClean));
+            }) : EPROC_EVENTS;
+            eventoCount.textContent = f.length;
+            const fragment = document.createDocumentFragment();
+            f.forEach(e => {
+                const label = document.createElement('label'); label.className = 'evento-item';
+                if (selected && selected.has(e)) label.classList.add('checked');
+                const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = e;
+                if (selected && selected.has(e)) cb.checked = true;
+                const displayName = EVENT_DISPLAY_NAMES[e];
+                if (displayName) {
+                    const wrap = document.createElement('div'); wrap.className = 'evento-text-wrap';
+                    const nameSpan = document.createElement('span'); nameSpan.className = 'evento-text'; nameSpan.textContent = displayName;
+                    const subSpan = document.createElement('span'); subSpan.className = 'evento-sub'; subSpan.textContent = e;
+                    wrap.appendChild(nameSpan); wrap.appendChild(subSpan);
+                    label.appendChild(cb); label.appendChild(wrap);
+                } else {
+                    const span = document.createElement('span'); span.className = 'evento-text'; span.textContent = e;
+                    label.appendChild(cb); label.appendChild(span);
+                }
+                label.addEventListener('change', function() {
+                    const ch = this.querySelector('input[type="checkbox"]');
+                    this.classList.toggle('checked', ch.checked);
+                    if (ch.checked) selectedEvents.add(ch.value); else selectedEvents.delete(ch.value);
+                    renderEventTags();
+                });
+                fragment.appendChild(label);
+            });
+            eventoList.innerHTML = '';
+            eventoList.appendChild(fragment);
+        }
+
+        function renderEventTags() {
+            eventoSelectedTags.innerHTML = '';
+            selectedEvents.forEach(e => {
+                const tag = document.createElement('span'); tag.className = 'evento-tag';
+                tag.innerHTML = `${EVENT_DISPLAY_NAMES[e] || e} <span class="evento-tag-remove">&times;</span>`;
+                tag.querySelector('.evento-tag-remove').onclick = () => { selectedEvents.delete(e); renderEventTags(); renderEventList(eventoSearchInput.value, selectedEvents); };
+                eventoSelectedTags.appendChild(tag);
+            });
+        }
+
+        let searchDebounce;
+        eventoSearchInput.addEventListener('input', function() {
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(() => renderEventList(this.value, selectedEvents), 150);
+        });
+
+        // Process vinculação
+        function renderProcessTags() {
+            eventoProcessoTags.innerHTML = '';
+            linkedProcesses.forEach(p => {
+                const tag = document.createElement('span'); tag.className = 'evento-tag-processo';
+                tag.innerHTML = `${formatNumProcesso(p)} <span class="evento-tag-remove">&times;</span>`;
+                tag.querySelector('.evento-tag-remove').onclick = () => { linkedProcesses.delete(p); renderProcessTags(); };
+                eventoProcessoTags.appendChild(tag);
+            });
+        }
+
+        function limparNumProcesso(num) {
+            return num.replace(/\D/g,'');
+        }
+
+        eventoBtnAdd.addEventListener('click', function() {
+            const val = eventoProcessoInput.value.trim();
+            if (!val) return;
+            const clean = limparNumProcesso(val);
+            if (clean.length < 15) { return; }
+            linkedProcesses.add(clean);
+            eventoProcessoInput.value = '';
+            renderProcessTags();
+        });
+        eventoProcessoInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); eventoBtnAdd.click(); }
+        });
+
+        const resetForm = () => {
+            editId=null; txtTexto.value=''; txtData.value=''; txtHora.value='';
+            selectedEvents.clear(); linkedProcesses.clear(); selectedProcessInput = '';
+            eventoProcessoInput.value = ''; eventoSearchInput.value = '';
+            renderEventTags(); renderProcessTags(); renderEventList('', selectedEvents);
+            document.getElementById('form-lembrete-title').textContent='Criar Lembrete';
+            document.getElementById('btn-cancelar-lembrete').textContent='Cancelar';
+            document.querySelectorAll('#color-selector .color-box').forEach(b=>b.classList.remove('active'));
+            document.querySelector('#color-selector .color-box[data-type="LEMBRETE"]').classList.add('active');
+            document.querySelector('#eproc-lembretes-modal .glass-card[data-modo="data"]')?.classList.add('active');
+            document.querySelector('#eproc-lembretes-modal .glass-card[data-modo="evento"]')?.classList.remove('active');
+            document.getElementById('eproc-lembretes-modal').classList.remove('modo-evento');
+            qualquerEvento = false;
+            if (eventoAnyCheckbox) { eventoAnyCheckbox.checked = false; if (eventoAnyRow) eventoAnyRow.classList.remove('active'); }
+            eventoSearchInput.disabled = false;
+            eventoList.style.pointerEvents = '';
+            eventoList.style.opacity = '1';
+            if (eventoCount) eventoCount.style.opacity = '1';
+            eventoSearchInput.style.opacity = '1';
+        };
 
         const formatDate = (isoStr) => { const d=new Date(isoStr); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} \u00e0s ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
 
+        const formatCardDate = (isoStr) => { const d=new Date(isoStr); return `\u23f0 ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+        const formatNumProcesso = (num) => { const d=num.replace(/\D/g,''); if(d.length!==20) return num; return `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d.slice(13,14)}.${d.slice(14,16)}.${d.slice(16,20)}`; };
 
         const renderList = async () => {
             listContainer.innerHTML = '';
             const all = await getAllLembretes();
             const ativos = all.filter(l => l.status === 'ativo').sort((a,b) => new Date(a.datetime) - new Date(b.datetime));
             if (ativos.length === 0) { listContainer.innerHTML = '<div style="text-align:center;padding:20px;color:#999;font-size:12px;">Nenhum lembrete ativo.</div>'; return; }
+            document.querySelector('#lembretes-list-container').previousElementSibling.textContent = `Lembretes Ativos (${ativos.length})`;
             ativos.forEach(l => {
                 const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
                 const c = colors[l.type] || colors['LEMBRETE'];
                 const div = document.createElement('div'); div.className = 'lembrete-item'; div.style.borderLeft = `4px solid ${c}`;
                 let snippet = l.text.length > 50 ? l.text.substring(0,50)+'...' : l.text;
-                div.innerHTML = `<div class="lembrete-info"><strong style="color:${c};">${l.type}</strong> - ${snippet}<span class="lembrete-date">\u23f0 ${formatDate(l.datetime)}</span></div><div class="lembrete-actions"><button class="btn-mini eproc-lembretes-click btn-edit" title="Editar"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button><button class="btn-mini danger eproc-lembretes-click btn-del" title="Excluir"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></div>`;
-                div.querySelector('.btn-edit').onclick = () => {
+                let metaHtml = '';
+                if (l.linkedEvents?.length) {
+                    const processNums = (l.linkedProcess || '').split(',').filter(Boolean).map(p => formatNumProcesso(p));
+                    const processCount = processNums.length;
+                    const processStr = processCount === 1 ? processNums[0] : processNums.join(', ');
+                    const eventList = l.anyEvent ? 'Qualquer evento' : l.linkedEvents.map(e => {
+                        const dn = EVENT_DISPLAY_NAMES[e] || e;
+                        return `"${dn.length > 30 ? dn.substring(0,30)+'...' : dn}"`;
+                    }).join(', ');
+                    metaHtml = `<div class="lembrete-evento-detail">\u2696\ufe0f ${processCount} processo${processCount !== 1 ? 's' : ''} (${processStr}) \u2022 ${l.anyEvent ? 'qualquer' : l.linkedEvents.length} evento${!l.anyEvent && l.linkedEvents.length !== 1 ? 's' : ''}: ${eventList}</div>`;
+                } else {
+                    metaHtml = `<span class="lembrete-date">${formatCardDate(l.datetime)}</span>`;
+                }
+                div.innerHTML = `<div class="lembrete-info"><strong style="color:${c};">${l.type}</strong> \u2014 <b>${snippet}</b>${metaHtml}</div><div class="lembrete-actions"><button class="btn-mini" title="Editar"><svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button><button class="btn-mini danger" title="Excluir"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></div>`;
+                div.querySelector('.btn-mini').onclick = () => {
                     editId = l.id; txtTexto.value = l.text;
                     const d = new Date(l.datetime);
                     txtData.value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -3458,70 +3682,397 @@
                     document.querySelectorAll('#color-selector .color-box').forEach(b => b.classList.remove('active'));
                     const sb = document.querySelector(`#color-selector .color-box[data-type="${l.type}"]`);
                     if (sb) sb.classList.add('active');
+                    if (l.linkedProcess) {
+                        linkedProcesses.clear(); l.linkedProcess.split(',').filter(Boolean).forEach(p => linkedProcesses.add(p));
+                        renderProcessTags();
+                    }
+                    if (l.linkedEvents && !l.anyEvent) {
+                        selectedEvents.clear(); l.linkedEvents.forEach(e => selectedEvents.add(e));
+                        renderEventTags(); renderEventList('', selectedEvents);
+                    }
+                    if (l.anyEvent) {
+                        qualquerEvento = true;
+                        if (eventoAnyCheckbox) { eventoAnyCheckbox.checked = true; if (eventoAnyRow) eventoAnyRow.classList.add('active'); }
+                        eventoSearchInput.disabled = true;
+                        eventoList.style.pointerEvents = 'none';
+                        eventoList.style.opacity = '0.35';
+                        eventoSearchInput.style.opacity = '0.35';
+                        if (eventoCount) eventoCount.style.opacity = '0.35';
+                    }
+                    const isEventoEdit = l.linkedEvents?.length > 0 || l.anyEvent;
+                    document.querySelector('#eproc-lembretes-modal .glass-card[data-modo="data"]')?.classList.toggle('active', !isEventoEdit);
+                    document.querySelector('#eproc-lembretes-modal .glass-card[data-modo="evento"]')?.classList.toggle('active', isEventoEdit);
+                    document.getElementById('eproc-lembretes-modal').classList.toggle('modo-evento', isEventoEdit);
                     document.getElementById('form-lembrete-title').textContent = 'Editar Lembrete';
                     document.getElementById('btn-cancelar-lembrete').textContent = 'Cancelar Edi\u00e7\u00e3o';
                 };
-                div.querySelector('.btn-del').onclick = async () => { if(confirm('Excluir este lembrete?')){ await deleteLembrete(l.id); if(editId===l.id) resetForm(); renderList(); updateSino(); } };
+                div.querySelector('.btn-mini.danger').onclick = async () => { if(confirm('Excluir este lembrete?')){ await deleteLembrete(l.id); if(editId===l.id) resetForm(); renderList(); updateSino(); } };
                 listContainer.appendChild(div);
             });
         };
 
         const openDashboard = () => { resetForm(); renderList(); modal.style.display = 'flex'; };
-        document.getElementById('btn-novo-lembrete').onclick = resetForm;
+
         document.getElementById('btn-cancelar-lembrete').onclick = resetForm;
         document.getElementById('btn-close-dashboard').onclick = () => { modal.style.display = 'none'; };
         modal.addEventListener('click', (e) => { if(e.target === modal) modal.style.display = 'none'; });
+
+        function getEprocHash() {
+            const cached = sessionStorage.getItem('eproc_hash');
+            if (cached) return cached;
+            const fromUrl = new URLSearchParams(location.search).get('hash');
+            if (fromUrl) {
+                sessionStorage.setItem('eproc_hash', fromUrl);
+                return fromUrl;
+            }
+            const link = document.querySelector('a[href*="hash="]');
+            if (link) {
+                try {
+                    const m = link.href.match(/[?&]hash=([^&]+)/);
+                    if (m) {
+                        sessionStorage.setItem('eproc_hash', m[1]);
+                        return m[1];
+                    }
+                } catch(e) {}
+            }
+            return '';
+        }
+
+        function buildProcessUrl(num) {
+            const clean = String(num).replace(/\D/g, '');
+            if (clean.length < 15) return '';
+            const link = document.querySelector('a[href*="acao=processo_selecionar"]');
+            if (link) {
+                try {
+                    const url = new URL(link.href, window.location.origin);
+                    url.searchParams.set('num_processo', clean);
+                    return url.toString();
+                } catch(e) {}
+            }
+            const hash = getEprocHash();
+            return `${location.origin}/eproc/controlador.php?acao=processo_selecionar&num_processo=${clean}&hash=${hash}`;
+        }
 
         document.getElementById('btn-salvar-lembrete').onclick = async () => {
             const text = txtTexto.value.trim();
             if (!text) return alert('Digite o texto do lembrete.');
             const activeTypeBox = document.querySelector('#color-selector .color-box.active');
             const type = activeTypeBox ? activeTypeBox.dataset.type : 'LEMBRETE';
+            const modoEvento = document.querySelector('#eproc-lembretes-modal .glass-card[data-modo="evento"]')?.classList.contains('active') ?? false;
             let dateVal = txtData.value, timeVal = txtHora.value || '06:00', targetDate = new Date();
-            if (!dateVal && !txtHora.value) { targetDate.setDate(targetDate.getDate()+1); targetDate.setHours(6,0,0,0); }
-            else if (!dateVal) { const [h,m] = timeVal.split(':'); targetDate.setHours(h,m,0,0); if(targetDate<=new Date()) targetDate.setDate(targetDate.getDate()+1); }
-            else { const [y,mo,d] = dateVal.split('-'); const [h,m] = timeVal.split(':'); targetDate = new Date(y,mo-1,d,h,m,0,0); }
-            const lembrete = { type, text, datetime: targetDate.toISOString(), status: 'ativo', createdAt: new Date().toISOString() };
+            if (modoEvento) {
+                if (linkedProcesses.size === 0) return alert('Vincule pelo menos um processo.');
+                if (!qualquerEvento && selectedEvents.size === 0) return alert('Selecione pelo menos um evento ou marque "Qualquer evento".');
+                targetDate = new Date();
+            }
+            if (!modoEvento) {
+                if (!dateVal && !txtHora.value) { targetDate.setDate(targetDate.getDate()+1); targetDate.setHours(6,0,0,0); }
+                else if (!dateVal) { const [h,m] = timeVal.split(':'); targetDate.setHours(h,m,0,0); if(targetDate<=new Date()) targetDate.setDate(targetDate.getDate()+1); }
+                else { const [y,mo,d] = dateVal.split('-'); const [h,m] = timeVal.split(':'); targetDate = new Date(y,mo-1,d,h,m,0,0); }
+            }
+            let lembreteCreatedAt = new Date().toISOString();
+            let lembreteExisting = null;
+            if (editId) {
+                const all = await getAllLembretes();
+                lembreteExisting = all.find(l => l.id === editId);
+                if (lembreteExisting) lembreteCreatedAt = lembreteExisting.createdAt;
+            }
+            const processUrls = {};
+            if (modoEvento) {
+                linkedProcesses.forEach(p => {
+                    const link = document.querySelector(`a[href*="num_processo=${p}"]`);
+                    processUrls[p] = link ? link.href : buildProcessUrl(p);
+                });
+            }
+            const lembrete = {
+                type, text, datetime: targetDate.toISOString(), status: 'ativo',
+                createdAt: lembreteCreatedAt,
+                linkedProcess: modoEvento ? [...linkedProcesses].join(',') : '',
+                linkedEvents: modoEvento ? (qualquerEvento ? ['*'] : [...selectedEvents]) : [],
+                anyEvent: qualquerEvento,
+                processUrls,
+                lastScanDate: '',
+                processosComPostit: [],
+                snoozedUntil: {}
+            };
+            if (lembreteExisting) {
+                if (lembreteExisting.lastScanDate) lembrete.lastScanDate = lembreteExisting.lastScanDate;
+                if (lembreteExisting.processosComPostit) lembrete.processosComPostit = lembreteExisting.processosComPostit;
+                if (lembreteExisting.snoozedUntil) {
+                    if (typeof lembreteExisting.snoozedUntil === 'string')
+                        lembrete.snoozedUntil['*'] = lembreteExisting.snoozedUntil;
+                    else
+                        lembrete.snoozedUntil = {...lembreteExisting.snoozedUntil};
+                }
+                if (lembreteExisting.ultimosEventosDetectados) {
+                    lembrete.ultimosEventosDetectados = lembreteExisting.ultimosEventosDetectados;
+                    if (lembreteExisting.ultimoProcesso) lembrete.ultimoProcesso = lembreteExisting.ultimoProcesso;
+                    if (lembreteExisting.ultimaUrl) lembrete.ultimaUrl = lembreteExisting.ultimaUrl;
+                }
+            }
+            if (editId && modoEvento && lembrete.snoozedUntil && typeof lembrete.snoozedUntil === 'object') {
+                [...linkedProcesses].forEach(p => { delete lembrete.snoozedUntil[p]; });
+            }
+            if (modoEvento && Array.isArray(lembrete.processosComPostit)) {
+                const linkedSet = new Set((lembrete.linkedProcess || '').split(',').filter(Boolean));
+                lembrete.processosComPostit = lembrete.processosComPostit.filter(p => linkedSet.has(p));
+            }
             if (editId) lembrete.id = editId;
-            await saveLembrete(lembrete); resetForm(); renderList(); updateSino();
+            await saveLembrete(lembrete);
+            const temEventos = modoEvento && (lembrete.linkedEvents.length > 0 || lembrete.anyEvent);
+            resetForm(); renderList(); updateSino();
+            if (temEventos) monitorarEventosVinculados();
         };
 
         const linkify = (text) => {
-            const urlParams = new URLSearchParams(location.search);
-            const hash = urlParams.get('hash') || '';
-            const selLocalizador = urlParams.get('selLocalizador') || '';
+            const hash = new URLSearchParams(location.search).get('hash') || '';
             const regex = /\b(\d{7})-?(\d{2})\.?(\d{4})\.?([8])\.?(13)\.?(\d{4})\b/g;
             return text.replace(regex, (match, g1, g2, g3, g4, g5, g6) => {
                 const cleanNum = `${g1}${g2}${g3}${g4}${g5}${g6}`;
                 const domLink = document.querySelector(`a[href*="num_processo=${cleanNum}"]`);
                 if (domLink) return `<a href="${domLink.href}" target="_blank" class="eproc-postit-link">${match}</a>`;
-                const builtHref = `controlador.php?acao=processo_selecionar&acao_origem=localizador_processos_lista&selLocalizador=${selLocalizador}&num_processo=${cleanNum}&operador=ou&hash=${hash}`;
+                const builtHref = buildProcessUrl(cleanNum) || `controlador.php?acao=processo_selecionar&num_processo=${cleanNum}&hash=${hash}`;
                 return `<a href="${builtHref}" target="_blank" class="eproc-postit-link">${match}</a>`;
             });
         };
 
-        const renderPostits = async () => {
-            const all = await getAllLembretes(); const now = new Date();
-            const paraExibir = all.filter(l => l.status === 'ativo' && new Date(l.datetime) <= now);
-            const container = document.getElementById('eproc-lembretes-container'); container.innerHTML = '';
-            paraExibir.forEach(l => {
-                const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
-                const c = colors[l.type] || colors['LEMBRETE'];
-                const div = document.createElement('div'); div.className = 'eproc-postit'; div.style.borderLeft = `4px solid ${c}`;
-                div.innerHTML = `<div class="eproc-postit-header"><span style="color:${c};">${l.type}</span><div class="eproc-postit-actions"><button class="eproc-postit-btn eproc-lembretes-click btn-adiar" title="Relembrar na pr\u00f3xima visita"><svg viewBox="0 0 24 24"><path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg></button><button class="eproc-postit-btn eproc-lembretes-click btn-fechar" title="Fechar permanentemente"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></div><div class="eproc-postit-body">${linkify(l.text).replace(/\n/g,'<br>')}</div>`;
-                div.querySelector('.btn-adiar').onclick = async () => { const next=new Date(); next.setMinutes(next.getMinutes()+60); l.datetime=next.toISOString(); await saveLembrete(l); div.style.display='none'; updateSino(); };
-                div.querySelector('.btn-fechar').onclick = async () => { l.status='fechado'; await saveLembrete(l); div.style.display='none'; updateSino(); };
-                container.appendChild(div);
-            });
-            updateSino();
-        };
 
+
+        const _snoozeBtnSvg = '<svg viewBox="0 0 24 24"><path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg>';
+        const _clockSvg = '<svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>';
+        const _calSvg = '<svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>';
+
+        function criarPostit(lembrete, processo, url, matchedEvents) {
+            const div = document.createElement('div'); div.className = 'eproc-postit';
+            div.dataset.lembreteId = lembrete.id;
+            div.dataset.processNum = processo;
+            const _colors3 = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)', 'EVENTO':'var(--eproc-blue)' };
+            const cor3 = _colors3[lembrete.type] || 'var(--eproc-yellow)';
+            div.style.setProperty('--postit-color', cor3);
+            const snoozeId = `snooze-${lembrete.id}-${processo}`;
+            const eventoNome = lembrete.anyEvent ? 'Qualquer evento' : (matchedEvents?.[0] || lembrete.ultimosEventosDetectados?.[0] || '');
+            div.innerHTML = `<div class="eproc-postit-header"><span style="color:${cor3};">${lembrete.type}</span><div style="display:flex;gap:4px;"><div class="snooze-wrapper" id="${snoozeId}"><button class="btn-mini snooze-btn" title="Relembrar depois" style="background:#f5f5f5;">${_snoozeBtnSvg}</button><div class="snooze-dropdown"><div class="snooze-dropdown-header">Relembrar em</div><button class="snooze-dropdown-item" data-minutes="10">${_clockSvg}10 Minutos</button><button class="snooze-dropdown-item" data-minutes="60">${_clockSvg}1 Hora</button><button class="snooze-dropdown-item" data-minutes="120">${_clockSvg}2 Horas</button><button class="snooze-dropdown-item" data-minutes="300">${_clockSvg}5 Horas</button><div class="snooze-divider"></div><button class="snooze-dropdown-item" data-minutes="day">${_calSvg}Amanh\u00e3 (a partir das 6h)</button></div></div><button class="btn-mini btn-fechar" title="Fechar" style="background:#f5f5f5;"><svg viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></div><div class="eproc-postit-body">${linkify(lembrete.text).replace(/\n/g,'<br>')}</div><div class="eproc-postit-evento">\ud83d\udd14 Evento detectado: <strong>${eventoNome}</strong>${!lembrete.anyEvent && matchedEvents && matchedEvents.length > 1 ? ' (+' + (matchedEvents.length-1) + ' mais)' : ''}<br>Processo: <a href="${url}" target="_blank" class="eproc-postit-link">${processo}</a></div>`;
+            div.querySelector('.btn-fechar').onclick = async function() {
+                if (processo && Array.isArray(lembrete.processosComPostit)) {
+                    const idx = lembrete.processosComPostit.indexOf(processo);
+                    if (idx > -1) lembrete.processosComPostit.splice(idx, 1);
+                    if (lembrete.processUrls) delete lembrete.processUrls[processo];
+                    if (!lembrete.snoozedUntil || typeof lembrete.snoozedUntil === 'string') lembrete.snoozedUntil = {};
+                    lembrete.snoozedUntil[processo] = '9999-12-31T23:59:59.000Z';
+                    if (!lembrete.processosComPostit.length) {
+                        const linkedProcs = (lembrete.linkedProcess || '').split(',').filter(Boolean);
+                        const remaining = linkedProcs.filter(p => {
+                            const sd2 = lembrete.snoozedUntil;
+                            return !sd2 || typeof sd2 === 'string' || !sd2[p] || new Date(sd2[p]) <= new Date();
+                        });
+                        if (!remaining.length) lembrete.status = 'fechado';
+                    }
+                } else {
+                    lembrete.status = 'fechado';
+                }
+                await saveLembrete(lembrete);
+                div.classList.add('postit-hidden');
+                updateSino();
+            };
+            return div;
+        }
+
+        function setupSnooze(postitEl, snoozeId, lembrete) {
+            const wrapper = postitEl.querySelector('.snooze-wrapper');
+            if (!wrapper) return;
+            const btn = wrapper.querySelector('.snooze-btn');
+            const dropdown = wrapper.querySelector('.snooze-dropdown');
+            btn.addEventListener('click', (e) => { e.stopPropagation(); dropdown.classList.toggle('open'); });
+            dropdown.addEventListener('click', async (e) => {
+                const opt = e.target.closest('.snooze-dropdown-item');
+                if (!opt) return;
+                dropdown.classList.remove('open');
+                const val = opt.dataset.minutes;
+                let until = new Date();
+                if (val === 'day') { until.setDate(until.getDate()+1); until.setHours(6,0,0,0); }
+                else { until.setMinutes(until.getMinutes() + parseInt(val)); }
+                const processKey = postitEl.dataset.processNum || '*';
+                if (typeof lembrete.snoozedUntil === 'string' || !lembrete.snoozedUntil) lembrete.snoozedUntil = {};
+                lembrete.snoozedUntil[processKey] = until.toISOString();
+                await saveLembrete(lembrete);
+                postitEl.classList.add('postit-hidden');
+                updateSino();
+            });
+            document.addEventListener('click', () => { dropdown.classList.remove('open'); });
+        }
+
+        let monitoringInProgress = false;
+        async function monitorarEventosVinculados() {
+            if (!window._eprocOrigemDataPronto) { setTimeout(monitorarEventosVinculados, 2000); return; }
+            if (monitoringInProgress) return;
+            monitoringInProgress = true;
+            try {
+            const all = await getAllLembretes();
+            const eventos = all.filter(l => l.status === 'ativo' && (l.linkedEvents?.length || l.anyEvent));
+            if (!eventos.length) return;
+            const now = new Date();
+            for (const lembrete of eventos) {
+                const sd = lembrete.snoozedUntil;
+                if (sd) {
+                    if (typeof sd === 'string') { if (sd && new Date(sd) > now) continue; }
+                    else if (sd['*'] && new Date(sd['*']) > now) continue;
+                }
+                if (Array.isArray(lembrete.processosComPostit) && lembrete.processosComPostit.length) {
+                    const container = document.getElementById('eproc-lembretes-container');
+                    if (container) {
+                        lembrete.processosComPostit.forEach(p => {
+                            if (sd && typeof sd !== 'string' && sd[p] && new Date(sd[p]) > now) return;
+                            const sel = `.eproc-postit[data-lembrete-id="${lembrete.id}"][data-process-num="${p}"]`;
+                            if (container.querySelector(sel)) return;
+                            const div = criarPostit(lembrete, p, lembrete.processUrls?.[p] || lembrete.ultimaUrl || '#', null);
+                            setupSnooze(div, `snooze-${lembrete.id}-${p}`, lembrete);
+                            container.appendChild(div);
+                            updateSino();
+                        });
+                    }
+                } else if (lembrete.ultimosEventosDetectados?.length) {
+                    const container = document.getElementById('eproc-lembretes-container');
+                    if (container && !container.querySelector(`.eproc-postit[data-lembrete-id="${lembrete.id}"]`)) {
+                        const ultimo = lembrete.ultimoProcesso || '';
+                        const pSnoozed = ultimo && sd && typeof sd !== 'string' && sd[ultimo] && new Date(sd[ultimo]) > now;
+                        if (!pSnoozed) {
+                            const div = criarPostit(lembrete, ultimo, lembrete.ultimaUrl || '#', lembrete.ultimosEventosDetectados);
+                            setupSnooze(div, `snooze-${lembrete.id}`, lembrete);
+                            container.appendChild(div);
+                            updateSino();
+                        }
+                    }
+                }
+            }
+            for (const lembrete of eventos) {
+                const sd2 = lembrete.snoozedUntil;
+                if (sd2) {
+                    if (typeof sd2 === 'string') { if (sd2 && new Date(sd2) > now) continue; }
+                    else if (sd2['*'] && new Date(sd2['*']) > now) continue;
+                }
+                const processos = (lembrete.linkedProcess || '').split(',').filter(Boolean);
+                const createdAt = new Date(lembrete.createdAt || lembrete.datetime);
+                if (isNaN(createdAt.getTime())) continue;
+                const alreadyDetected = lembrete.ultimosEventosDetectados?.length > 0;
+                const lastScan = (alreadyDetected && lembrete.lastScanDate) ? new Date(lembrete.lastScanDate) : createdAt;
+                const lastScanAdj = new Date(lastScan.getTime() - 1000);
+                let anySuccess = false;
+                for (const numProcesso of processos) {
+                    if (sd2 && typeof sd2 !== 'string' && sd2[numProcesso] && new Date(sd2[numProcesso]) > now) continue;
+                    try {
+                        await rateLimiter.consume();
+                        const linkEl = document.querySelector(`a[href*="num_processo=${numProcesso}"]`);
+                        let url = linkEl ? linkEl.href : buildProcessUrl(numProcesso);
+                        if (!url) url = lembrete.processUrls?.[numProcesso];
+                        if (!url) continue;
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 15000);
+                        const res = await fetch(url, { method:'GET', headers:{'X-Requested-With':'XMLHttpRequest'}, credentials:'include', cache:'no-store', signal:controller.signal });
+                        clearTimeout(timeoutId);
+                        if (!res.ok) continue;
+                        const text = new TextDecoder('iso-8859-1').decode(await res.arrayBuffer());
+                        if (text.includes('Sua sessão foi encerrada') || text.length < 500) continue;
+                        anySuccess = true;
+                        const doc = new DOMParser().parseFromString(text, 'text/html');
+                        const rows = doc.querySelectorAll('#tblEventos tr, #tblEventosNovos tr');
+                        let matchedEvents = [];
+                        for (const row of rows) {
+                            let dateMatch = null;
+                            for (let ci = 0; ci < row.cells.length; ci++) {
+                                dateMatch = row.cells[ci].textContent.trim().match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s*[^\d]*(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+                                if (dateMatch) break;
+                            }
+                            if (!dateMatch) continue;
+                            const [_, dStr, moStr, yStr, hStr, miStr, sStr] = dateMatch;
+                            let eventDate;
+                            if (hStr !== undefined) { eventDate = new Date(+yStr, +moStr-1, +dStr, +hStr, +miStr, +sStr || 0); }
+                            else { eventDate = new Date(+yStr, +moStr-1, +dStr, 23, 59, 59); }
+                            if (eventDate < lastScanAdj) continue;
+                            const eventText = row.textContent;
+                            if (lembrete.anyEvent) {
+                                matchedEvents.push('*');
+                            } else {
+                                for (const linkedEvent of lembrete.linkedEvents) {
+                                    const parts = linkedEvent.split('/').map(s => s.trim()).filter(Boolean);
+                                    const match = parts.some(part =>
+                                        removerAcentosEv(eventText.toUpperCase()).includes(removerAcentosEv(part.toUpperCase()))
+                                    );
+                                    if (match) {
+                                        matchedEvents.push(linkedEvent);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (matchedEvents.length > 0) {
+                            const container = document.getElementById('eproc-lembretes-container');
+                            if (!container) continue;
+                            const existing = Array.from(container.querySelectorAll('.eproc-postit')).some(el => el.dataset.lembreteId == lembrete.id && el.dataset.processNum === numProcesso);
+                            if (!existing) {
+                                const div = criarPostit(lembrete, numProcesso, url, matchedEvents);
+                                setupSnooze(div, `snooze-${lembrete.id}-${numProcesso}`, lembrete);
+                                container.appendChild(div);
+                                if (!lembrete.processosComPostit) lembrete.processosComPostit = [];
+                                if (!lembrete.processosComPostit.includes(numProcesso)) lembrete.processosComPostit.push(numProcesso);
+                                if (!lembrete.processUrls) lembrete.processUrls = {};
+                                lembrete.processUrls[numProcesso] = url;
+                                lembrete.ultimosEventosDetectados = [...new Set([...(lembrete.ultimosEventosDetectados || []), ...matchedEvents])];
+                                lembrete.ultimoProcesso = numProcesso;
+                                lembrete.ultimaUrl = url;
+                                await saveLembrete(lembrete);
+                                updateSino();
+                            }
+                        }
+                    } catch(e) { continue; }
+                }
+                if (anySuccess) {
+                    lembrete.lastScanDate = now.toISOString();
+                    await saveLembrete(lembrete);
+                }
+            }
+            } finally { monitoringInProgress = false; }
+        }
+
+        async function verificarLembretesData() {
+            const all = await getAllLembretes();
+            const now = new Date();
+            const pendentes = all.filter(l => l.status === 'ativo' && !l.linkedEvents?.length);
+            for (const lembrete of pendentes) {
+                const snoozeData = lembrete.snoozedUntil;
+                if (snoozeData) {
+                    if (typeof snoozeData === 'string') { if (snoozeData && new Date(snoozeData) > now) continue; }
+                    else if (snoozeData['*'] && new Date(snoozeData['*']) > now) continue;
+                }
+                const data = new Date(lembrete.datetime);
+                if (isNaN(data.getTime()) || data > now) continue;
+                const container = document.getElementById('eproc-lembretes-container');
+                if (!container) continue;
+                if (container.querySelector(`.eproc-postit[data-lembrete-id="${lembrete.id}"]`)) continue;
+                const colors = { 'PRAZO':'var(--eproc-red)', 'LEMBRETE':'var(--eproc-yellow)' };
+                const c = colors[lembrete.type] || 'var(--eproc-yellow)';
+                const div = document.createElement('div'); div.className = 'eproc-postit';
+                div.dataset.lembreteId = lembrete.id;
+                div.style.setProperty('--postit-color', c);
+                const snoozeId = `snooze-${lembrete.id}`;
+                const snoozeBtnSvg = '<svg viewBox="0 0 24 24"><path d="M6 2v6h.01L6 8.01 10 12l-4 4 .01.01H6V22h12v-5.99h-.01L18 16l-4-4 4-3.99-.01-.01H18V2H6zm10 14.5V20H8v-3.5l4-4 4 4zm-4-5l-4-4V4h8v3.5l-4 4z"/></svg>';
+                const clockSvg = '<svg viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>';
+                const calSvg = '<svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z"/></svg>';
+                div.innerHTML = `<div class="eproc-postit-header"><span style="color:${c};">${lembrete.type}</span><div style="display:flex;gap:4px;"><div class="snooze-wrapper" id="${snoozeId}"><button class="btn-mini snooze-btn" title="Relembrar depois" style="background:#f5f5f5;">${snoozeBtnSvg}</button><div class="snooze-dropdown"><div class="snooze-dropdown-header">Relembrar em</div><button class="snooze-dropdown-item" data-minutes="10">${clockSvg}10 Minutos</button><button class="snooze-dropdown-item" data-minutes="60">${clockSvg}1 Hora</button><button class="snooze-dropdown-item" data-minutes="120">${clockSvg}2 Horas</button><button class="snooze-dropdown-item" data-minutes="300">${clockSvg}5 Horas</button><div class="snooze-divider"></div><button class="snooze-dropdown-item" data-minutes="day">${calSvg}Amanh\u00e3 (a partir das 6h)</button></div></div><button class="btn-mini btn-fechar" title="Fechar" style="background:#f5f5f5;"><svg viewBox="0 0 24 24" style="width:14px;height:14px;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></div><div class="eproc-postit-body">${linkify(lembrete.text).replace(/\n/g,'<br>')}</div>`;
+            div.querySelector('.btn-fechar').onclick = async function() { lembrete.status='fechado'; await saveLembrete(lembrete); div.classList.add('postit-hidden'); updateSino(); };
+                setupSnooze(div, snoozeId, lembrete);
+                container.appendChild(div);
+                await saveLembrete(lembrete);
+                updateSino();
+            }
+        }
+
+        setInterval(monitorarEventosVinculados, 60000);
+        setInterval(verificarLembretesData, 30000);
         insertBell();
-        let inatividade = 0;
-        document.addEventListener('mousemove', () => inatividade = 0);
-        document.addEventListener('keypress', () => inatividade = 0);
-        setInterval(() => { inatividade++; if (inatividade === 15) renderPostits(); }, 1000);
-        setTimeout(renderPostits, 2000);
+        setTimeout(updateSino, 2000);
+        setTimeout(monitorarEventosVinculados, 4000);
+        setTimeout(verificarLembretesData, 1000);
+        setTimeout(() => { if (!window._eprocOrigemDataPronto) window._eprocOrigemDataPronto = true; }, 30000);
     }
 
     if (document.readyState === 'loading') {
@@ -3573,4 +4124,3 @@
     })();
 
 })();
-
