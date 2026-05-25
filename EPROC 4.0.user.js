@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EPROC 4.0
 // @namespace    http://tampermonkey.net/
-// @version      47
+// @version      47.2
 // @description  Seleções inteligentes e Complementos ao sistema EPROC + Auto Checkboxes
 // @author       Allison de Castro Silva
 // @match        https://eproc1g.tjmg.jus.br/eproc/*
@@ -711,6 +711,12 @@
             const saved = localStorage.getItem(LS_KEY_SORT);
             if (!saved) return;
             const { col, dir } = JSON.parse(saved);
+
+            if (col === 'native') {
+                initialSortAplicado = true;
+                return;
+            }
+
             const colClass = col === 'data' ? '.eproc-col-data-nucleo' : '.eproc-col-origem-nucleo';
             const ordemVar = col === 'data' ? 'ordemData' : 'ordemOrigem';
             ordenarPor(colClass, ordemVar, dir);
@@ -836,6 +842,18 @@
 
         if (!header.getAttribute('data-eproc-col-priority-applied')) {
             header.setAttribute('data-eproc-col-priority-applied', 'true');
+
+            header.querySelectorAll('th.infraTh').forEach(th => {
+                if (!th.classList.contains('th-nucleo-40') && !th.classList.contains('th-nucleo-origem')) {
+                    const btnSort = th.querySelector('.infraTableOrdenacao') || th.querySelector('.infraImgOrdenacao');
+                    if (btnSort) {
+                        th.addEventListener('click', () => {
+                            localStorage.setItem(LS_KEY_SORT, JSON.stringify({ col: 'native', dir: 'asc' }));
+                        });
+                    }
+                }
+            });
+
             const p1Keywords =['LOCALIZADOR'];
             const p2Keywords =['AUTOR', 'RÉU', 'REU', 'PASSIVO', 'POLO PASSIVO'];
             const p3WrapKeywords =['CLASSE', 'ÚLTIMO EVENTO', 'ULTIMO EVENTO', 'PROCEDIMENTO'];
